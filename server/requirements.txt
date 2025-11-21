@@ -1,0 +1,4 @@
+fastapi
+uvicorn[standard]
+prisma>=0.15.0
+python-dotenv
