@@ -1,14 +1,124 @@
-// This is your Prisma schema file,
-// learn more about it in the docs: https://pris.ly/d/prisma-schema
-
-// Looking for ways to speed up your queries, or scale easily with your serverless or edge functions?
-// Try Prisma Accelerate: https://pris.ly/cli/accelerate-init
+// This is the final schema for the Stock Flow Hub project.
+// It is configured for a Python (FastAPI) backend.
 
 generator client {
-  provider = "prisma-client-js"
+  provider = "prisma-client-py"
 }
 
 datasource db {
   provider = "postgresql"
   url      = env("DATABASE_URL")
+}
+
+// ----------------------------------
+// MODELS
+// ----------------------------------
+
+// Represents a single sellable product in the system.
+model Product {
+  id              String @id @default(cuid())
+  sku             String @unique
+  name            String
+  
+  // This is the single source of truth for inventory.
+  // It increases when a shipment is RECEIVED.
+  // It decreases when an order is COMPLETED.
+  quantityInStock Int    @default(0) @map("quantity_in_stock")
+
+  // Relations
+  shipmentRequests ShipmentRequest[]
+  orderLineItems   OrderLineItem[]
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+}
+
+// Represents a "master order" to a supplier. It groups all demand.
+model Shipment {
+  id            String         @id @default(cuid())
+  name          String         // e.g., "Shipment #3", "November Q4 Restock"
+  status        ShipmentStatus @default(PLANNING)
+  
+  // Relations: A shipment contains many individual request line items.
+  requests      ShipmentRequest[]
+
+  createdAt  DateTime  @default(now()) @map("created_at")
+  orderedAt  DateTime? @map("ordered_at")
+  receivedAt DateTime? @map("received_at")
+}
+
+// Represents a single line item within a Shipment.
+// This can be for a specific customer pre-order or for general inventory restock.
+model ShipmentRequest {
+  id           String   @id @default(cuid())
+  quantity     Int
+  customerName String?  @map("customer_name") // Optional: Use for pre-orders. Leave null or set to "Inventory" for restock.
+
+  // Relations
+  shipmentId String
+  shipment   Shipment @relation(fields: [shipmentId], references: [id], onDelete: Cascade)
+  
+  productId String
+  product   Product @relation(fields: [productId], references: [id])
+  
+  // This helps link a pre-order request directly to the sales order it will fulfill.
+  fulfillingOrderId String? @unique @map("fulfilling_order_id")
+  fulfillingOrder   Order?  @relation(fields: [fulfillingOrderId], references: [id])
+  
+  @@map("shipment_requests")
+}
+
+// Represents a customer sale from any channel (pre-order, local, Amazon).
+model Order {
+  id           String      @id @default(cuid())
+  customerName String      @map("customer_name")
+  source       OrderSource
+  status       OrderStatus @default(AWAITING_STOCK)
+
+  // Relations
+  lineItems         OrderLineItem[]
+  shipmentRequest   ShipmentRequest? // If this was a pre-order, it links back to the request
+
+  createdAt DateTime @default(now()) @map("created_at")
+  updatedAt DateTime @updatedAt
+}
+
+// Represents a line item within a customer Order.
+model OrderLineItem {
+  id       String @id @default(cuid())
+  quantity Int
+
+  // Relations
+  orderId String
+  order   Order  @relation(fields: [orderId], references: [id], onDelete: Cascade)
+
+  productId String
+  product   Product @relation(fields: [productId], references: [id])
+
+  @@map("order_line_items")
+}
+
+
+// ----------------------------------
+// ENUMS
+// ----------------------------------
+
+enum ShipmentStatus {
+  PLANNING
+  ORDERED
+  RECEIVED
+}
+
+enum OrderStatus {
+  AWAITING_STOCK
+  READY_TO_SHIP
+  ON_HOLD
+  COMPLETED
+  CANCELLED
+}
+
+enum OrderSource {
+  PreOrder // Created automatically from a ShipmentRequest
+  Local    // Manually created for a walk-in/direct sale
+  Amazon   // Manually created for an Amazon sale
 }

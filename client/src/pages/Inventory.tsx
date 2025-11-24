@@ -1,5 +1,5 @@
 import { useState, useEffect } from "react";
-import { Search, Loader2 } from "lucide-react";
+import { Search, Loader2, Inbox, SearchX } from "lucide-react";
 import Navigation from "@/components/Navigation";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
@@ -38,14 +38,16 @@ const Inventory = () => {
   }, [searchQuery, inventory]);
 
   const fetchInventory = async () => {
+    setLoading(true);
     try {
       const response = await inventoryApi.getAll();
       setInventory(response.data);
       setFilteredInventory(response.data);
     } catch (error) {
+      console.error("Failed to fetch inventory:", error);
       toast({
         title: "Error",
-        description: "Failed to fetch inventory",
+        description: "Failed to fetch inventory. Check the console for details.",
         variant: "destructive",
       });
     } finally {
@@ -80,24 +82,40 @@ const Inventory = () => {
             </div>
 
             {loading ? (
-              <div className="flex items-center justify-center py-8">
+              <div className="flex items-center justify-center py-20">
                 <Loader2 className="h-8 w-8 animate-spin text-muted-foreground" />
               </div>
             ) : filteredInventory.length === 0 ? (
-              <div className="text-center py-8 text-muted-foreground">
-                {searchQuery ? "No products found matching your search" : "No products in inventory"}
-              </div>
+              // Empty state logic
+              searchQuery ? (
+                <div className="flex flex-col items-center justify-center py-16 text-center">
+                  <SearchX className="h-16 w-16 text-muted-foreground/50" />
+                  <h2 className="mt-4 text-xl font-semibold">No Results Found</h2>
+                  <p className="mt-2 text-muted-foreground">
+                    Your search for "{searchQuery}" did not match any products.
+                  </p>
+                </div>
+              ) : (
+                <div className="flex flex-col items-center justify-center py-16 text-center">
+                  <Inbox className="h-16 w-16 text-muted-foreground/50" />
+                  <h2 className="mt-4 text-xl font-semibold">No Products in Inventory</h2>
+                  <p className="mt-2 text-muted-foreground">
+                    Your product catalog will appear here once seeded.
+                  </p>
+                </div>
+              )
             ) : (
               <Table>
                 <TableHeader>
-                  <TableRow>
-                    <TableHead>Product SKU</TableHead>
-                    <TableHead>Product Name</TableHead>
-                    <TableHead className="text-right">Quantity in Stock</TableHead>
-                  </TableRow>
-                </TableHeader>
+  <TableRow>
+    <TableHead key="sku">Product SKU</TableHead>
+    <TableHead key="name">Product Name</TableHead>
+    <TableHead key="qty" className="text-right">Quantity in Stock</TableHead>
+  </TableRow>
+</TableHeader>
                 <TableBody>
                   {filteredInventory.map((item) => (
+                    // THIS IS THE CRITICAL LINE THAT MUST BE CORRECT
                     <TableRow key={item.product_sku}>
                       <TableCell className="font-mono">{item.product_sku}</TableCell>
                       <TableCell className="font-medium">{item.product_name}</TableCell>
