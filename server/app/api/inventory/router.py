@@ -7,7 +7,7 @@ from .schemas import InventoryItem
 
 router = APIRouter()
 
-@router.get("/", response_model=List[InventoryItem])
+@router.get("", response_model=List[InventoryItem])
 async def get_inventory_list(db: Prisma = Depends(lambda: db_client)):
     """
     Get a list of all items in inventory.

@@ -1,16 +1,29 @@
 import { useState, useEffect } from "react";
-import { Search, Loader2, Inbox, SearchX } from "lucide-react";
+import { Search, Loader2, Inbox, SearchX, ExternalLink } from "lucide-react";
 import Navigation from "@/components/Navigation";
-import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
-import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
+import {
+  Card,
+  CardContent,
+  CardDescription,
+  CardHeader,
+  CardTitle,
+} from "@/components/ui/card";
+import {
+  Table,
+  TableBody,
+  TableCell,
+  TableHead,
+  TableHeader,
+  TableRow,
+} from "@/components/ui/table";
 import { Input } from "@/components/ui/input";
 import { inventoryApi } from "@/lib/api";
 import { useToast } from "@/hooks/use-toast";
 
 interface InventoryItem {
-  product_sku: string;
-  product_name: string;
-  quantity: number;
+  sku: string;
+  name: string;
+  quantityInStock: number;
 }
 
 const Inventory = () => {
@@ -28,8 +41,8 @@ const Inventory = () => {
     if (searchQuery) {
       const filtered = inventory.filter(
         (item) =>
-          item.product_name.toLowerCase().includes(searchQuery.toLowerCase()) ||
-          item.product_sku.toLowerCase().includes(searchQuery.toLowerCase())
+          item.name.toLowerCase().includes(searchQuery.toLowerCase()) ||
+          item.sku.toLowerCase().includes(searchQuery.toLowerCase())
       );
       setFilteredInventory(filtered);
     } else {
@@ -47,7 +60,7 @@ const Inventory = () => {
       console.error("Failed to fetch inventory:", error);
       toast({
         title: "Error",
-        description: "Failed to fetch inventory. Check the console for details.",
+        description: "Failed to fetch inventory.",
         variant: "destructive",
       });
     } finally {
@@ -58,76 +71,91 @@ const Inventory = () => {
   return (
     <div className="min-h-screen bg-background">
       <Navigation />
-      
       <div className="container mx-auto px-4 py-8">
-        <Card>
-          <CardHeader>
-            <CardTitle className="text-3xl">Inventory</CardTitle>
-            <CardDescription className="mt-2">
-              Real-time view of all products in stock
+        <Card className="shadow-xl border-0 rounded-2xl">
+          <CardHeader className="pb-4">
+            <CardTitle className="text-4xl font-bold tracking-tight">Inventory Dashboard</CardTitle>
+            <CardDescription className="text-base mt-1 text-muted-foreground">
+              Monitor real-time stock availability
             </CardDescription>
           </CardHeader>
-          
+
           <CardContent>
-            <div className="mb-6">
-              <div className="relative">
-                <Search className="absolute left-3 top-1/2 transform -translate-y-1/2 h-4 w-4 text-muted-foreground" />
+            <div className="mb-6 flex items-center justify-between">
+              <div className="relative w-full max-w-md">
+                <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-5 w-5 text-muted-foreground" />
                 <Input
-                  placeholder="Search by product name or SKU..."
+                  placeholder="Search products by name or SKU..."
                   value={searchQuery}
                   onChange={(e) => setSearchQuery(e.target.value)}
-                  className="pl-10"
+                  className="pl-12 py-6 rounded-xl text-base shadow-sm"
                 />
               </div>
             </div>
 
             {loading ? (
-              <div className="flex items-center justify-center py-20">
-                <Loader2 className="h-8 w-8 animate-spin text-muted-foreground" />
+              <div className="flex items-center justify-center py-24">
+                <Loader2 className="h-10 w-10 animate-spin text-muted-foreground" />
               </div>
             ) : filteredInventory.length === 0 ? (
-              // Empty state logic
-              searchQuery ? (
-                <div className="flex flex-col items-center justify-center py-16 text-center">
-                  <SearchX className="h-16 w-16 text-muted-foreground/50" />
-                  <h2 className="mt-4 text-xl font-semibold">No Results Found</h2>
-                  <p className="mt-2 text-muted-foreground">
-                    Your search for "{searchQuery}" did not match any products.
-                  </p>
-                </div>
-              ) : (
-                <div className="flex flex-col items-center justify-center py-16 text-center">
-                  <Inbox className="h-16 w-16 text-muted-foreground/50" />
-                  <h2 className="mt-4 text-xl font-semibold">No Products in Inventory</h2>
-                  <p className="mt-2 text-muted-foreground">
-                    Your product catalog will appear here once seeded.
-                  </p>
-                </div>
-              )
+              <div className="flex flex-col items-center justify-center py-20 text-center">
+                {searchQuery ? (
+                  <SearchX className="h-20 w-20 text-muted-foreground/40" />
+                ) : (
+                  <Inbox className="h-20 w-20 text-muted-foreground/40" />
+                )}
+                <h2 className="mt-5 text-2xl font-semibold">
+                  {searchQuery ? "No Results Found" : "Inventory Empty"}
+                </h2>
+                <p className="mt-2 text-muted-foreground text-base max-w-md">
+                  {searchQuery
+                    ? `No products match "${searchQuery}" in the current stock.`
+                    : "There are currently no items with positive stock levels."}
+                </p>
+              </div>
             ) : (
-              <Table>
-                <TableHeader>
-  <TableRow>
-    <TableHead key="sku">Product SKU</TableHead>
-    <TableHead key="name">Product Name</TableHead>
-    <TableHead key="qty" className="text-right">Quantity in Stock</TableHead>
-  </TableRow>
-</TableHeader>
-                <TableBody>
-                  {filteredInventory.map((item) => (
-                    // THIS IS THE CRITICAL LINE THAT MUST BE CORRECT
-                    <TableRow key={item.product_sku}>
-                      <TableCell className="font-mono">{item.product_sku}</TableCell>
-                      <TableCell className="font-medium">{item.product_name}</TableCell>
-                      <TableCell className="text-right">
-                        <span className={item.quantity < 10 ? "text-destructive font-semibold" : ""}>
-                          {item.quantity}
-                        </span>
-                      </TableCell>
+              <div className="rounded-xl border overflow-hidden shadow-sm">
+                <Table>
+                  <TableHeader>
+                    <TableRow className="bg-muted/40">
+                      <TableHead className="font-semibold text-base py-4">SKU</TableHead>
+                      <TableHead className="font-semibold text-base">Product Name</TableHead>
+                      <TableHead className="font-semibold text-base text-right pr-6">
+                        Quantity
+                      </TableHead>
                     </TableRow>
-                  ))}
-                </TableBody>
-              </Table>
+                  </TableHeader>
+                  <TableBody>
+                    {filteredInventory.map((item) => (
+                      <TableRow key={item.sku} className="hover:bg-muted/20 transition">
+                        <TableCell className="font-mono text-primary font-medium">
+                          <a
+                            href={`https://store.rakwireless.com/pages/search-results-page?q=${item.sku}`}
+                            target="_blank"
+                            rel="noopener noreferrer"
+                            className="inline-flex items-center gap-1 hover:underline"
+                          >
+                            {item.sku}
+                            <ExternalLink className="h-3 w-3 opacity-60" />
+                          </a>
+                        </TableCell>
+                        <TableCell className="font-medium text-base">{item.name}</TableCell>
+                        <TableCell className="text-right pr-6 text-base">
+                          <span
+                            className={
+                              item.quantityInStock < 10
+                                ? "text-destructive font-semibold"
+                                : "font-semibold"
+                            }
+                          >
+                            {item.quantityInStock}
+                          </span>
+                        </TableCell>
+                      </TableRow>
+                    ))}
+                  </TableBody>
+                </Table>
+              </div>
             )}
           </CardContent>
         </Card>

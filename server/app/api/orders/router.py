@@ -8,7 +8,7 @@ from .schemas import Order, OrderCreate
 
 router = APIRouter()
 
-@router.post("/", response_model=Order, status_code=201)
+@router.post("", response_model=Order, status_code=201)
 async def create_new_order(
     order_data: OrderCreate,
     db: Prisma = Depends(lambda: db_client)
@@ -18,9 +18,9 @@ async def create_new_order(
     """
     return await service.create(db, order_data)
 
-@router.get("/", response_model=List[Order])
+@router.get("", response_model=List[Order])
 async def get_all_orders_route(
-    status: OrderStatus | None = Query(None), # Handles ?status=... from the URL
+    status: OrderStatus | None = Query(None),
     db: Prisma = Depends(lambda: db_client)
 ):
     """

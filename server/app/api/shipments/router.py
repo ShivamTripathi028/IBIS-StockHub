@@ -7,17 +7,16 @@ from .schemas import ShipmentListItem, ShipmentDetail, ShipmentStatusUpdate, Shi
 
 router = APIRouter()
 
-@router.post("/", response_model=ShipmentListItem, status_code=201)
+@router.post("", response_model=ShipmentListItem, status_code=201)
 async def create_new_shipment(db: Prisma = Depends(lambda: db_client)):
     """Create a new empty shipment."""
     return await service.create(db)
 
-@router.get("/", response_model=List[ShipmentListItem])
+@router.get("", response_model=List[ShipmentListItem])
 async def get_all_shipments_route(db: Prisma = Depends(lambda: db_client)):
     """Get a list of all existing shipments."""
     return await service.get_all(db)
 
-# --- NEW ENDPOINT for Shipment Detail page ---
 @router.get("/{shipment_id}", response_model=ShipmentDetail)
 async def get_shipment_details(shipment_id: str, db: Prisma = Depends(lambda: db_client)):
     """Retrieve details for a single shipment."""
@@ -39,13 +38,11 @@ async def add_request_to_shipment_route(
     shipment = await service.get_by_id(db, shipment_id)
     if not shipment:
         raise HTTPException(status_code=404, detail="Shipment not found")
-    if shipment.status != ShipmentStatus.PLANNING:
+    if str(shipment.status) != "PLANNING": 
         raise HTTPException(
             status_code=400,
             detail=f"Cannot add requests to a shipment with status '{shipment.status}'"
         )
-
-    # TODO: We should also verify the product_id exists. We'll add this validation later.
 
     await service.add_request_to_shipment(db, shipment_id, request_data)
     

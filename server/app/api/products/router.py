@@ -7,7 +7,7 @@ from .schemas import Product, ProductCreate
 
 router = APIRouter()
 
-@router.post("/", response_model=Product, status_code=201)
+@router.post("", response_model=Product, status_code=201)
 async def create_new_product(
     product: ProductCreate, 
     db: Prisma = Depends(lambda: db_client)
@@ -23,7 +23,7 @@ async def create_new_product(
         )
     return await service.create(db, product)
 
-@router.get("/", response_model=List[Product])
+@router.get("", response_model=List[Product])
 async def get_all_products_route(db: Prisma = Depends(lambda: db_client)):
     """
     Get a list of all products.
