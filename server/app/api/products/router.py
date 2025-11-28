@@ -1,5 +1,5 @@
-from fastapi import APIRouter, HTTPException, Depends
-from typing import List
+from fastapi import APIRouter, HTTPException, Depends, Query
+from typing import List, Optional
 from prisma import Prisma
 from app.db.session import db_client
 from . import service
@@ -23,9 +23,14 @@ async def create_new_product(
         )
     return await service.create(db, product)
 
+# --- UPDATED ENDPOINT ---
 @router.get("", response_model=List[Product])
-async def get_all_products_route(db: Prisma = Depends(lambda: db_client)):
+async def get_all_products_route(
+    search: Optional[str] = Query(None), # Capture ?search=... from URL
+    db: Prisma = Depends(lambda: db_client)
+):
     """
-    Get a list of all products.
+    Get a list of products. 
+    If 'search' is provided, filters by Name OR SKU.
     """
-    return await service.get_all(db)
+    return await service.get_all(db, search_query=search)

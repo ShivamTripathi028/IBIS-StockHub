@@ -18,7 +18,7 @@ const Navigation = () => {
               activeClassName="bg-accent text-accent-foreground"
             >
               <Package className="h-4 w-4" />
-              Purchase Planning
+              Shipment Planning
             </NavLink>
             
             <NavLink

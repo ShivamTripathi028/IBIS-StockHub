@@ -2,9 +2,23 @@ from pydantic import BaseModel, ConfigDict, Field
 from datetime import datetime
 from prisma.enums import ShipmentStatus
 
+class ShipmentCreate(BaseModel):
+    name: str
+
 class ShipmentRequestCreate(BaseModel):
     customer_name: str | None = None
     product_id: str
+    quantity: int
+
+class ShipmentRequestBatchItem(BaseModel):
+    product_id: str
+    quantity: int
+
+class ShipmentRequestBatchCreate(BaseModel):
+    customer_name: str | None = None
+    items: list[ShipmentRequestBatchItem]
+
+class ShipmentRequestUpdate(BaseModel):
     quantity: int
 
 class ShipmentRequest(BaseModel):

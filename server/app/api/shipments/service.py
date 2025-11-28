@@ -1,44 +1,35 @@
 from prisma import Prisma
 from datetime import datetime
 from prisma.enums import ShipmentStatus
-from .schemas import ShipmentRequestCreate 
+from .schemas import ShipmentRequestCreate, ShipmentCreate, ShipmentRequestBatchCreate
 
+# ... (keep get_all, get_by_id, create, delete_shipment as they are) ...
 async def get_all(db: Prisma):
-    """Returns all shipments from the database, ordered by most recent."""
     return await db.shipment.find_many(order={'createdAt': 'desc'})
 
 async def get_by_id(db: Prisma, shipment_id: str):
-    """
-    Returns a single shipment by its ID, including its related requests and products.
-    """
     return await db.shipment.find_unique(
         where={'id': shipment_id},
         include={
             'requests': {
                 'include': {
-                    'product': True # Include product details for each request
+                    'product': True 
                 }
             }
         }
     )
 
-async def create(db: Prisma):
-    """Creates a new shipment with an automatically generated name."""
-    current_date = datetime.now().strftime("%B %d, %Y")
-    base_name = f"Shipment - {current_date}"
-    shipment_name = base_name
-    
-    count = 0
-    while await db.shipment.find_first(where={'name': shipment_name}):
-        count += 1
-        shipment_name = f"{base_name} (#{count})"
+async def create(db: Prisma, shipment_data: ShipmentCreate):
+    return await db.shipment.create(data={'name': shipment_data.name})
 
-    return await db.shipment.create(data={'name': shipment_name})
+async def delete_shipment(db: Prisma, shipment_id: str):
+    shipment = await db.shipment.find_unique(where={'id': shipment_id})
+    if not shipment: return None
+    if shipment.status != ShipmentStatus.PLANNING:
+        raise ValueError("Only shipments in PLANNING status can be deleted.")
+    return await db.shipment.delete(where={'id': shipment_id})
 
 async def add_request_to_shipment(db: Prisma, shipment_id: str, request_data: ShipmentRequestCreate):
-    """
-    Creates a new ShipmentRequest and links it to an existing shipment and product.
-    """
     return await db.shipmentrequest.create(
         data={
             'shipmentId': shipment_id,
@@ -48,39 +39,114 @@ async def add_request_to_shipment(db: Prisma, shipment_id: str, request_data: Sh
         }
     )
 
+async def add_batch_requests(db: Prisma, shipment_id: str, batch_data: ShipmentRequestBatchCreate):
+    """
+    Adds multiple requests. If a request for the same product and customer exists,
+    it increments the quantity instead of creating a duplicate.
+    """
+    results = []
+    
+    # We loop through items sequentially
+    for item in batch_data.items:
+        # 1. Check if this product/customer combo already exists in this shipment
+        existing_request = await db.shipmentrequest.find_first(
+            where={
+                'shipmentId': shipment_id,
+                'productId': item.product_id,
+                # We handle NULL vs String comparison for customerName
+                'customerName': batch_data.customer_name if batch_data.customer_name else None
+            }
+        )
+
+        if existing_request:
+            # 2. Update existing entry (Merge)
+            updated = await db.shipmentrequest.update(
+                where={'id': existing_request.id},
+                data={
+                    'quantity': {
+                        'increment': item.quantity
+                    }
+                }
+            )
+            results.append(updated)
+        else:
+            # 3. Create new entry
+            created = await db.shipmentrequest.create(
+                data={
+                    'shipmentId': shipment_id,
+                    'productId': item.product_id,
+                    'quantity': item.quantity,
+                    'customerName': batch_data.customer_name,
+                }
+            )
+            results.append(created)
+            
+    return results
+
 async def update_status(db: Prisma, shipment_id: str, new_status: ShipmentStatus):
-    """
-    Updates the status of a shipment. If the new status is 'RECEIVED',
-    it increments the stock for all products in the shipment within a transaction.
-    """
+    # ... (keep existing update_status logic) ...
     shipment = await db.shipment.find_unique(where={'id': shipment_id}, include={'requests': True})
     
-    if not shipment:
-        return None # Shipment not found
+    if not shipment: return None 
 
-    # Logic for when stock is received
     if new_status == ShipmentStatus.RECEIVED and shipment.status == ShipmentStatus.ORDERED:
         async with db.tx() as transaction:
-            # 1. Increment stock for each product in the shipment
             for request in shipment.requests:
                 await transaction.product.update(
                     where={'id': request.productId},
                     data={'quantityInStock': {'increment': request.quantity}}
                 )
-            
-            # 2. Update the shipment status and received date
             updated_shipment = await transaction.shipment.update(
                 where={'id': shipment_id},
                 data={'status': new_status, 'receivedAt': datetime.now()}
             )
             return updated_shipment
 
-    # Logic for marking as ordered
     elif new_status == ShipmentStatus.ORDERED and shipment.status == ShipmentStatus.PLANNING:
         return await db.shipment.update(
             where={'id': shipment_id},
             data={'status': new_status, 'orderedAt': datetime.now()}
         )
     
-    # If the status transition is not valid, just return the original shipment
     return shipment
+
+async def delete_request(db: Prisma, request_id: str):
+    """
+    Deletes a specific request item. 
+    Verifies that the parent shipment is still in PLANNING.
+    """
+    # 1. Find the request and include shipment to check status
+    request = await db.shipmentrequest.find_unique(
+        where={'id': request_id},
+        include={'shipment': True}
+    )
+    
+    if not request:
+        return None
+        
+    if request.shipment.status != ShipmentStatus.PLANNING:
+        raise ValueError("Cannot delete items from a shipment that is not in PLANNING stage.")
+
+    # 2. Delete
+    return await db.shipmentrequest.delete(where={'id': request_id})
+
+async def update_request_quantity(db: Prisma, request_id: str, quantity: int):
+    """
+    Updates the quantity of a request item.
+    Verifies status is PLANNING.
+    """
+    request = await db.shipmentrequest.find_unique(
+        where={'id': request_id},
+        include={'shipment': True}
+    )
+    
+    if not request:
+        return None
+        
+    if request.shipment.status != ShipmentStatus.PLANNING:
+        raise ValueError("Cannot update items in a shipment that is not in PLANNING stage.")
+
+    return await db.shipmentrequest.update(
+        where={'id': request_id},
+        data={'quantity': quantity}
+    )
