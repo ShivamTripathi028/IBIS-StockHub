@@ -28,6 +28,18 @@ export interface OrderPayload {
   line_items: { product_id: string; quantity: number }[];
 }
 
+export interface InvoiceItem {
+  sku: string;
+  product_name: string;
+  total_quantity: number;
+}
+
+export interface InvoiceData {
+  shipment_name: string;
+  items: InvoiceItem[];
+  total_items: number;
+}
+
 export interface OrderUpdatePayload { customer_name?: string; }
 
 export const shipmentsApi = {
@@ -39,9 +51,10 @@ export const shipmentsApi = {
   updateStatus: (id: string, status: string) => api.put(`/shipments/${id}/status`, { status }),
   delete: (id: string) => api.delete(`/shipments/${id}`),
   
-  // NEW: Request Item specific actions
   deleteRequest: (requestId: string) => api.delete(`/shipments/requests/${requestId}`),
-  updateRequest: (requestId: string, quantity: number) => api.patch(`/shipments/requests/${requestId}`, { quantity })
+  updateRequest: (requestId: string, quantity: number) => api.patch(`/shipments/requests/${requestId}`, { quantity }),
+  getInvoicePreview: (id: string) => api.get<InvoiceData>(`/shipments/${id}/invoice/preview`),
+  downloadInvoice: (id: string) => api.get(`/shipments/${id}/invoice/download`, { responseType: 'blob' }),
 };
 
 export const ordersApi = {

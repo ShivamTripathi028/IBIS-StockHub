@@ -1,4 +1,5 @@
 from fastapi import APIRouter, Depends, HTTPException
+from fastapi.responses import StreamingResponse
 from typing import List
 from prisma import Prisma
 from app.db.session import db_client
@@ -10,7 +11,8 @@ from .schemas import (
     ShipmentRequestCreate, 
     ShipmentCreate,
     ShipmentRequestBatchCreate,
-    ShipmentRequestUpdate
+    ShipmentRequestUpdate,
+    InvoiceData
 )
 
 router = APIRouter()
@@ -100,3 +102,25 @@ async def update_request_item(
         return result
     except ValueError as e:
         raise HTTPException(status_code=400, detail=str(e))
+
+@router.get("/{shipment_id}/invoice/preview", response_model=InvoiceData)
+async def preview_invoice_route(shipment_id: str, db: Prisma = Depends(lambda: db_client)):
+    data = await service.get_invoice_data(db, shipment_id)
+    if not data:
+        raise HTTPException(status_code=404, detail="Shipment not found")
+    return data
+
+@router.get("/{shipment_id}/invoice/download")
+async def download_invoice_route(shipment_id: str, db: Prisma = Depends(lambda: db_client)):
+    result = await service.generate_excel_invoice(db, shipment_id)
+    if not result:
+        raise HTTPException(status_code=404, detail="Shipment not found")
+    
+    output, shipment_name = result
+    filename = f"Invoice_{shipment_name.replace(' ', '_')}.xlsx"
+    
+    return StreamingResponse(
+        output, 
+        media_type="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+        headers={"Content-Disposition": f"attachment; filename={filename}"}
+    )

@@ -1,3 +1,5 @@
+import pandas as pd
+import io
 from prisma import Prisma
 from datetime import datetime
 from prisma.enums import ShipmentStatus
@@ -150,3 +152,83 @@ async def update_request_quantity(db: Prisma, request_id: str, quantity: int):
         where={'id': request_id},
         data={'quantity': quantity}
     )
+
+async def get_invoice_data(db: Prisma, shipment_id: str):
+    """
+    Aggregates shipment requests by Product SKU.
+    Returns structured data for preview.
+    """
+    shipment = await db.shipment.find_unique(
+        where={'id': shipment_id},
+        include={
+            'requests': {
+                'include': {'product': True}
+            }
+        }
+    )
+    
+    if not shipment:
+        return None
+
+    # Aggregation Logic
+    aggregated = {} # Key: sku, Value: {name, qty}
+
+    for req in shipment.requests:
+        sku = req.product.sku
+        if sku in aggregated:
+            aggregated[sku]['qty'] += req.quantity
+        else:
+            aggregated[sku] = {
+                'name': req.product.name,
+                'qty': req.quantity
+            }
+
+    # Convert to list
+    items = []
+    for sku, data in aggregated.items():
+        items.append({
+            'sku': sku,
+            'product_name': data['name'],
+            'total_quantity': data['qty']
+        })
+    
+    # Sort by SKU
+    items.sort(key=lambda x: x['sku'])
+
+    return {
+        'shipment_name': shipment.name,
+        'items': items,
+        'total_items': sum(item['total_quantity'] for item in items)
+    }
+
+async def generate_excel_invoice(db: Prisma, shipment_id: str):
+    """
+    Generates an Excel file bytes object.
+    """
+    data = await get_invoice_data(db, shipment_id)
+    if not data:
+        return None
+
+    # Create DataFrame
+    df = pd.DataFrame(data['items'])
+    
+    # Rename columns for the Excel file
+    df.rename(columns={
+        'sku': 'SKU', 
+        'product_name': 'Product Name', 
+        'total_quantity': 'Quantity'
+    }, inplace=True)
+
+    # Write to BytesIO buffer
+    output = io.BytesIO()
+    with pd.ExcelWriter(output, engine='openpyxl') as writer:
+        df.to_excel(writer, index=False, sheet_name='Invoice')
+        
+        # Adjust column widths (optional polish)
+        worksheet = writer.sheets['Invoice']
+        worksheet.column_dimensions['A'].width = 15
+        worksheet.column_dimensions['B'].width = 50
+        worksheet.column_dimensions['C'].width = 10
+    
+    output.seek(0)
+    return output, data['shipment_name']

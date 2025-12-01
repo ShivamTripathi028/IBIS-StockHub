@@ -13,7 +13,8 @@ import {
   Trash2, 
   Pencil,
   Search,
-  X
+  X,
+  Download
 } from "lucide-react";
 import Navigation from "@/components/Navigation";
 import { Button } from "@/components/ui/button";
@@ -33,7 +34,7 @@ import {
   AlertDialogHeader, 
   AlertDialogTitle 
 } from "@/components/ui/alert-dialog";
-import { shipmentsApi, productsApi } from "@/lib/api";
+import { shipmentsApi, productsApi, InvoiceData } from "@/lib/api";
 import { useToast } from "@/hooks/use-toast";
 import { AxiosError } from "axios";
 
@@ -97,6 +98,11 @@ const ShipmentDetail = () => {
   const [isEditOpen, setIsEditOpen] = useState(false);
   const [requestToDelete, setRequestToDelete] = useState<string | null>(null);
   const [isDeleteOpen, setIsDeleteOpen] = useState(false);
+
+  // -- Invoice Modal State --
+  const [isInvoiceOpen, setIsInvoiceOpen] = useState(false);
+  const [invoiceData, setInvoiceData] = useState<InvoiceData | null>(null);
+  const [invoiceLoading, setInvoiceLoading] = useState(false);
 
   // -- Fetch Data --
   const fetchShipmentDetail = useCallback(async () => {
@@ -260,6 +266,42 @@ const ShipmentDetail = () => {
     }
   };
 
+  // -- Invoice Handlers --
+  const handlePreviewInvoice = async () => {
+    setInvoiceLoading(true);
+    setIsInvoiceOpen(true);
+    try {
+      const response = await shipmentsApi.getInvoicePreview(id!);
+      setInvoiceData(response.data);
+    } catch (error) {
+      console.error(error);
+      toast({ title: "Error", description: "Failed to generate invoice preview", variant: "destructive" });
+      setIsInvoiceOpen(false);
+    } finally {
+      setInvoiceLoading(false);
+    }
+  };
+
+  const handleDownloadInvoice = async () => {
+    try {
+      const response = await shipmentsApi.downloadInvoice(id!);
+      
+      const url = window.URL.createObjectURL(new Blob([response.data]));
+      const link = document.createElement('a');
+      link.href = url;
+      link.setAttribute('download', `Invoice_${shipment?.name}.xlsx`);
+      document.body.appendChild(link);
+      link.click();
+      link.remove();
+      
+      toast({ title: "Success", description: "Invoice downloaded successfully" });
+      setIsInvoiceOpen(false);
+    } catch (error) {
+      console.error(error);
+      toast({ title: "Error", description: "Failed to download invoice", variant: "destructive" });
+    }
+  };
+
   const getStatusVariant = (status: string) => {
     switch (status.toLowerCase()) {
       case "planning": return "secondary";
@@ -315,12 +357,11 @@ const ShipmentDetail = () => {
                 </div>
             
                 <div className="flex gap-2">
-                    <Button variant="outline" onClick={() => toast({ title: "Invoice", description: "Feature coming soon" })}>
+                    <Button variant="outline" onClick={handlePreviewInvoice}>
                         <FileText className="mr-2 h-4 w-4" /> Supplier Invoice
                     </Button>
                     
                     {shipment.status === "PLANNING" && (
-                    // Changed to default variant (dark/black) instead of blue
                     <Button onClick={() => handleStatusUpdate("ORDERED")}>
                         <Package className="mr-2 h-4 w-4" /> Mark as Ordered
                     </Button>
@@ -493,9 +534,7 @@ const ShipmentDetail = () => {
                         <TableCell>
                             {request.customerName ? (
                                 <div className="flex items-center gap-2">
-                                    {/* Changed from text-blue-500 to text-muted-foreground */}
                                     <User className="h-4 w-4 text-muted-foreground" />
-                                    {/* Changed from text-blue-700 to text-foreground */}
                                     <span className="text-foreground font-medium">{request.customerName}</span>
                                 </div>
                             ) : (
@@ -510,7 +549,6 @@ const ShipmentDetail = () => {
                         {shipment.status === "PLANNING" && (
                             <TableCell className="text-right pr-6">
                                 <div className="flex justify-end gap-1">
-                                    {/* Changed hover color to neutral primary instead of blue */}
                                     <Button 
                                         variant="ghost" 
                                         size="icon" 
@@ -587,6 +625,57 @@ const ShipmentDetail = () => {
             </AlertDialogFooter>
           </AlertDialogContent>
         </AlertDialog>
+
+        {/* Invoice Preview Modal */}
+        <Dialog open={isInvoiceOpen} onOpenChange={setIsInvoiceOpen}>
+            <DialogContent className="max-w-3xl">
+                <DialogHeader>
+                    <DialogTitle>Supplier Invoice Preview</DialogTitle>
+                    <DialogDescription>
+                        Consolidated list of items by SKU.
+                    </DialogDescription>
+                </DialogHeader>
+                
+                {invoiceLoading ? (
+                    <div className="py-12 flex justify-center">
+                        <Loader2 className="h-8 w-8 animate-spin text-muted-foreground" />
+                    </div>
+                ) : invoiceData ? (
+                    <div className="space-y-4">
+                        <div className="border rounded-md max-h-[400px] overflow-auto">
+                            <Table>
+                                <TableHeader className="bg-muted/50">
+                                    <TableRow>
+                                        <TableHead className="w-[150px]">SKU</TableHead>
+                                        <TableHead>Product Name</TableHead>
+                                        <TableHead className="text-right">Total Quantity</TableHead>
+                                    </TableRow>
+                                </TableHeader>
+                                <TableBody>
+                                    {invoiceData.items.map((item) => (
+                                        <TableRow key={item.sku}>
+                                            <TableCell className="font-mono text-sm">{item.sku}</TableCell>
+                                            <TableCell>{item.product_name}</TableCell>
+                                            <TableCell className="text-right font-bold">{item.total_quantity}</TableCell>
+                                        </TableRow>
+                                    ))}
+                                    <TableRow className="bg-muted/20 font-bold">
+                                        <TableCell colSpan={2} className="text-right">Total Items:</TableCell>
+                                        <TableCell className="text-right">{invoiceData.total_items}</TableCell>
+                                    </TableRow>
+                                </TableBody>
+                            </Table>
+                        </div>
+                        <DialogFooter>
+                            <Button variant="outline" onClick={() => setIsInvoiceOpen(false)}>Cancel</Button>
+                            <Button onClick={handleDownloadInvoice}>
+                                <Download className="mr-2 h-4 w-4" /> Download Excel
+                            </Button>
+                        </DialogFooter>
+                    </div>
+                ) : null}
+            </DialogContent>
+        </Dialog>
 
       </div>
     </div>

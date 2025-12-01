@@ -47,3 +47,13 @@ class ShipmentListItem(BaseModel):
     status: ShipmentStatus
     creation_date: datetime = Field(..., alias='createdAt')
     model_config = ConfigDict(from_attributes=True, arbitrary_types_allowed=True)
+
+class InvoiceItem(BaseModel):
+    sku: str
+    product_name: str
+    total_quantity: int
+
+class InvoiceData(BaseModel):
+    shipment_name: str
+    items: list[InvoiceItem]
+    total_items: int
