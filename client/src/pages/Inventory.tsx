@@ -1,5 +1,5 @@
 import { useState, useEffect } from "react";
-import { Search, Loader2, Inbox, SearchX, ExternalLink } from "lucide-react";
+import { Search, Loader2, Inbox, SearchX, ExternalLink, ArrowUpDown, ArrowUp, ArrowDown } from "lucide-react";
 import Navigation from "@/components/Navigation";
 import {
   Card,
@@ -17,6 +17,7 @@ import {
   TableRow,
 } from "@/components/ui/table";
 import { Input } from "@/components/ui/input";
+import { Button } from "@/components/ui/button"; // Added Button import
 import { inventoryApi } from "@/lib/api";
 import { useToast } from "@/hooks/use-toast";
 
@@ -26,29 +27,45 @@ interface InventoryItem {
   quantityInStock: number;
 }
 
+type SortOrder = 'asc' | 'desc' | null;
+
 const Inventory = () => {
   const { toast } = useToast();
   const [inventory, setInventory] = useState<InventoryItem[]>([]);
   const [filteredInventory, setFilteredInventory] = useState<InventoryItem[]>([]);
   const [loading, setLoading] = useState(true);
   const [searchQuery, setSearchQuery] = useState("");
+  const [sortOrder, setSortOrder] = useState<SortOrder>(null);
 
   useEffect(() => {
     fetchInventory();
   }, []);
 
   useEffect(() => {
+    let result = [...inventory];
+
+    // 1. Filter
     if (searchQuery) {
-      const filtered = inventory.filter(
+      result = result.filter(
         (item) =>
           item.name.toLowerCase().includes(searchQuery.toLowerCase()) ||
           item.sku.toLowerCase().includes(searchQuery.toLowerCase())
       );
-      setFilteredInventory(filtered);
-    } else {
-      setFilteredInventory(inventory);
     }
-  }, [searchQuery, inventory]);
+
+    // 2. Sort
+    if (sortOrder) {
+      result.sort((a, b) => {
+        if (sortOrder === 'asc') {
+          return a.quantityInStock - b.quantityInStock;
+        } else {
+          return b.quantityInStock - a.quantityInStock;
+        }
+      });
+    }
+
+    setFilteredInventory(result);
+  }, [searchQuery, inventory, sortOrder]);
 
   const fetchInventory = async () => {
     setLoading(true);
@@ -68,6 +85,24 @@ const Inventory = () => {
     }
   };
 
+  const toggleSort = () => {
+    if (sortOrder === null) setSortOrder('asc');
+    else if (sortOrder === 'asc') setSortOrder('desc');
+    else setSortOrder(null);
+  };
+
+  const getSortIcon = () => {
+    if (sortOrder === 'asc') return <ArrowUp className="h-4 w-4" />;
+    if (sortOrder === 'desc') return <ArrowDown className="h-4 w-4" />;
+    return <ArrowUpDown className="h-4 w-4" />;
+  };
+
+  const getSortLabel = () => {
+    if (sortOrder === 'asc') return "Low to High";
+    if (sortOrder === 'desc') return "High to Low";
+    return "Sort Quantity";
+  };
+
   return (
     <div className="min-h-screen bg-background">
       <Navigation />
@@ -81,7 +116,7 @@ const Inventory = () => {
           </CardHeader>
 
           <CardContent>
-            <div className="mb-6 flex items-center justify-between">
+            <div className="mb-6 flex flex-col sm:flex-row gap-4 items-stretch sm:items-center justify-between">
               <div className="relative w-full max-w-md">
                 <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-5 w-5 text-muted-foreground" />
                 <Input
@@ -91,6 +126,15 @@ const Inventory = () => {
                   className="pl-12 py-6 rounded-xl text-base shadow-sm"
                 />
               </div>
+              
+              <Button 
+                variant="outline" 
+                onClick={toggleSort}
+                className="h-14 px-6 rounded-xl border-input bg-background shadow-sm hover:bg-accent hover:text-accent-foreground gap-2 min-w-[160px]"
+              >
+                {getSortIcon()}
+                <span>{getSortLabel()}</span>
+              </Button>
             </div>
 
             {loading ? (

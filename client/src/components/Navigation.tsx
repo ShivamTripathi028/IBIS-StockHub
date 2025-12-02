@@ -9,7 +9,12 @@ const Navigation = () => {
           <div className="flex items-center gap-2">
             {/* Make the Logo link to dashboard */}
             <NavLink to="/dashboard" className="flex items-center gap-2 hover:opacity-80 transition-opacity">
-                <Warehouse className="h-6 w-6 text-primary" />
+                {/* Replaced House Icon with Company Logo */}
+                <img 
+                  src="/assets/images/ibis_logo.png" 
+                  alt="IBIS StockHub" 
+                  className="h-8 w-auto object-contain" 
+                />
                 <span className="text-xl font-semibold text-foreground">Inventory Manager</span>
             </NavLink>
           </div>
