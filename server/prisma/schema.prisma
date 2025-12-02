@@ -61,8 +61,9 @@ model ShipmentRequest {
   productId String
   product   Product @relation(fields: [productId], references: [id])
   
-  // This helps link a pre-order request directly to the sales order it will fulfill.
-  fulfillingOrderId String? @unique @map("fulfilling_order_id")
+  // Link to the Sales Order (One-to-Many relation)
+  // No @unique here, because one Order can be fulfilled by multiple requests
+  fulfillingOrderId String? @map("fulfilling_order_id") 
   fulfillingOrder   Order?  @relation(fields: [fulfillingOrderId], references: [id])
   
   @@map("shipment_requests")
@@ -77,7 +78,10 @@ model Order {
 
   // Relations
   lineItems         OrderLineItem[]
-  shipmentRequest   ShipmentRequest? // If this was a pre-order, it links back to the request
+  
+  // UPDATED: Changed from singular object to array []
+  // This defines a One-to-Many relationship (One Order has many ShipmentRequests)
+  shipmentRequests  ShipmentRequest[] 
 
   createdAt DateTime @default(now()) @map("created_at")
   updatedAt DateTime @updatedAt

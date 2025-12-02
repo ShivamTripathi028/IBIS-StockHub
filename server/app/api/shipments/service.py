@@ -2,7 +2,7 @@ import pandas as pd
 import io
 from prisma import Prisma
 from datetime import datetime
-from prisma.enums import ShipmentStatus
+from prisma.enums import ShipmentStatus, OrderStatus, OrderSource
 from .schemas import ShipmentRequestCreate, ShipmentCreate, ShipmentRequestBatchCreate
 
 # ... (keep get_all, get_by_id, create, delete_shipment as they are) ...
@@ -86,11 +86,12 @@ async def add_batch_requests(db: Prisma, shipment_id: str, batch_data: ShipmentR
     return results
 
 async def update_status(db: Prisma, shipment_id: str, new_status: ShipmentStatus):
-    # ... (keep existing update_status logic) ...
     shipment = await db.shipment.find_unique(where={'id': shipment_id}, include={'requests': True})
     
-    if not shipment: return None 
+    if not shipment:
+        return None 
 
+    # 1. RECEIVING STOCK (Increment Inventory)
     if new_status == ShipmentStatus.RECEIVED and shipment.status == ShipmentStatus.ORDERED:
         async with db.tx() as transaction:
             for request in shipment.requests:
@@ -98,17 +99,67 @@ async def update_status(db: Prisma, shipment_id: str, new_status: ShipmentStatus
                     where={'id': request.productId},
                     data={'quantityInStock': {'increment': request.quantity}}
                 )
+            
+            # Also mark the associated Sales Orders as Ready to Ship
+            for request in shipment.requests:
+                if request.fulfillingOrderId:
+                    await transaction.order.update(
+                        where={'id': request.fulfillingOrderId},
+                        data={'status': OrderStatus.READY_TO_SHIP}
+                    )
+
             updated_shipment = await transaction.shipment.update(
                 where={'id': shipment_id},
                 data={'status': new_status, 'receivedAt': datetime.now()}
             )
             return updated_shipment
 
+    # 2. MARKING AS ORDERED (Create Sales Orders)
     elif new_status == ShipmentStatus.ORDERED and shipment.status == ShipmentStatus.PLANNING:
-        return await db.shipment.update(
-            where={'id': shipment_id},
-            data={'status': new_status, 'orderedAt': datetime.now()}
-        )
+        async with db.tx() as transaction:
+            # A. Update Shipment Status
+            updated_shipment = await transaction.shipment.update(
+                where={'id': shipment_id},
+                data={'status': new_status, 'orderedAt': datetime.now()}
+            )
+
+            # B. Group Requests by Customer
+            # { "Shivam": [Request1, Request2] }
+            customer_groups = {}
+            for req in shipment.requests:
+                if req.customerName: 
+                    if req.customerName not in customer_groups:
+                        customer_groups[req.customerName] = []
+                    customer_groups[req.customerName].append(req)
+            
+            # C. Create Orders
+            for cust_name, requests in customer_groups.items():
+                # 1. Create the Order
+                new_order = await transaction.order.create(
+                    data={
+                        'customerName': cust_name,
+                        'source': OrderSource.PreOrder,
+                        'status': OrderStatus.AWAITING_STOCK
+                    }
+                )
+
+                # 2. Add Line Items & Link Requests
+                for req in requests:
+                    await transaction.orderlineitem.create(
+                        data={
+                            'orderId': new_order.id,
+                            'productId': req.productId,
+                            'quantity': req.quantity
+                        }
+                    )
+                    
+                    # Link the shipment request to this order
+                    await transaction.shipmentrequest.update(
+                        where={'id': req.id},
+                        data={'fulfillingOrderId': new_order.id}
+                    )
+            
+            return updated_shipment
     
     return shipment
 

@@ -20,17 +20,14 @@ async def create_new_order(
 
 @router.get("", response_model=List[Order])
 async def get_all_orders_route(
-    status: OrderStatus | None = Query(None),
+    status: OrderStatus | None = Query(None), 
     db: Prisma = Depends(lambda: db_client)
 ):
     """
     Get a list of all orders, optionally filtered by status.
     """
-    # The service returns lineItems, but the frontend expects 'products'. We rename it here.
-    orders_from_db = await service.get_all(db, status)
-    for order in orders_from_db:
-        order.products = order.lineItems
-    return orders_from_db
+    # The Schema now handles mapping 'lineItems' to 'products' automatically via alias.
+    return await service.get_all(db, status)
 
 @router.post("/{order_id}/complete", response_model=Order)
 async def complete_order_route(order_id: str, db: Prisma = Depends(lambda: db_client)):
@@ -39,7 +36,6 @@ async def complete_order_route(order_id: str, db: Prisma = Depends(lambda: db_cl
         updated_order = await service.complete_order(db, order_id)
         if not updated_order:
             raise HTTPException(status_code=404, detail="Order not found")
-        updated_order.products = updated_order.lineItems
         return updated_order
     except ValueError as e:
         raise HTTPException(status_code=400, detail=str(e))
@@ -51,7 +47,6 @@ async def cancel_order_route(order_id: str, db: Prisma = Depends(lambda: db_clie
     updated_order = await service.cancel_order(db, order_id)
     if not updated_order:
         raise HTTPException(status_code=404, detail="Order not found")
-    updated_order.products = updated_order.lineItems
     return updated_order
 
 
@@ -61,5 +56,4 @@ async def hold_order_route(order_id: str, db: Prisma = Depends(lambda: db_client
     updated_order = await service.hold_order(db, order_id)
     if not updated_order:
         raise HTTPException(status_code=404, detail="Order not found")
-    updated_order.products = updated_order.lineItems
-    return updated_order
+    return updated_order  

@@ -68,5 +68,9 @@ export const ordersApi = {
 
 export const inventoryApi = { getAll: () => api.get('/inventory') };
 export const productsApi = { search: (query: string) => api.get('/products', { params: { search: query } }) };
+export const dashboardApi = {
+  getStats: () => api.get('/dashboard/stats'),
+  getLowStock: () => api.get('/dashboard/low-stock'),
+};
 
 export default api;

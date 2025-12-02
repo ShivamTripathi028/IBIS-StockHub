@@ -104,6 +104,9 @@ const ShipmentDetail = () => {
   const [invoiceData, setInvoiceData] = useState<InvoiceData | null>(null);
   const [invoiceLoading, setInvoiceLoading] = useState(false);
 
+  // -- Mark Ordered Confirmation State --
+  const [isMarkOrderedOpen, setIsMarkOrderedOpen] = useState(false);
+
   // -- Fetch Data --
   const fetchShipmentDetail = useCallback(async () => {
     try {
@@ -219,6 +222,7 @@ const ShipmentDetail = () => {
     try {
       await shipmentsApi.updateStatus(id!, status);
       toast({ title: "Success", description: `Shipment marked as ${status}` });
+      setIsMarkOrderedOpen(false); // Close modal if open
       fetchShipmentDetail();
     } catch (error) {
       console.error(error);
@@ -362,7 +366,8 @@ const ShipmentDetail = () => {
                     </Button>
                     
                     {shipment.status === "PLANNING" && (
-                    <Button onClick={() => handleStatusUpdate("ORDERED")}>
+                    // CHANGED: Opens the Confirmation Dialog instead of immediate action
+                    <Button onClick={() => setIsMarkOrderedOpen(true)}>
                         <Package className="mr-2 h-4 w-4" /> Mark as Ordered
                     </Button>
                     )}
@@ -676,6 +681,25 @@ const ShipmentDetail = () => {
                 ) : null}
             </DialogContent>
         </Dialog>
+
+        {/* NEW: Mark as Ordered Confirmation Modal */}
+        <AlertDialog open={isMarkOrderedOpen} onOpenChange={setIsMarkOrderedOpen}>
+          <AlertDialogContent>
+            <AlertDialogHeader>
+              <AlertDialogTitle>Mark Shipment as Ordered?</AlertDialogTitle>
+              <AlertDialogDescription>
+                This will finalize the planning phase. Sales orders will be automatically created
+                for all customer requests in this shipment. This action cannot be easily undone.
+              </AlertDialogDescription>
+            </AlertDialogHeader>
+            <AlertDialogFooter>
+              <AlertDialogCancel>Cancel</AlertDialogCancel>
+              <AlertDialogAction onClick={() => handleStatusUpdate("ORDERED")} className="bg-primary hover:bg-primary/90">
+                Confirm Order
+              </AlertDialogAction>
+            </AlertDialogFooter>
+          </AlertDialogContent>
+        </AlertDialog>
 
       </div>
     </div>

@@ -1,5 +1,5 @@
 import { NavLink } from "@/components/NavLink";
-import { Package, ShoppingCart, Warehouse } from "lucide-react";
+import { Package, ShoppingCart, Warehouse, LayoutDashboard } from "lucide-react";
 
 const Navigation = () => {
   return (
@@ -7,11 +7,23 @@ const Navigation = () => {
       <div className="container mx-auto px-4">
         <div className="flex items-center justify-between h-16">
           <div className="flex items-center gap-2">
-            <Warehouse className="h-6 w-6 text-primary" />
-            <span className="text-xl font-semibold text-foreground">Inventory Manager</span>
+            {/* Make the Logo link to dashboard */}
+            <NavLink to="/dashboard" className="flex items-center gap-2 hover:opacity-80 transition-opacity">
+                <Warehouse className="h-6 w-6 text-primary" />
+                <span className="text-xl font-semibold text-foreground">Inventory Manager</span>
+            </NavLink>
           </div>
           
           <div className="flex gap-1">
+            <NavLink
+              to="/dashboard"
+              className="flex items-center gap-2 px-4 py-2 rounded-md text-sm font-medium transition-colors hover:bg-accent hover:text-accent-foreground"
+              activeClassName="bg-accent text-accent-foreground"
+            >
+              <LayoutDashboard className="h-4 w-4" />
+              Overview
+            </NavLink>
+
             <NavLink
               to="/shipments"
               className="flex items-center gap-2 px-4 py-2 rounded-md text-sm font-medium transition-colors hover:bg-accent hover:text-accent-foreground"

@@ -1,4 +1,4 @@
-import { useState, useEffect } from "react";
+import { useState, useEffect, useCallback } from "react";
 import { useNavigate } from "react-router-dom";
 import { Plus, Loader2, Package, Calendar, Trash2 } from "lucide-react";
 import Navigation from "@/components/Navigation";
@@ -44,11 +44,8 @@ const Shipments = () => {
   const [shipmentToDelete, setShipmentToDelete] = useState<string | null>(null);
   const [isDeleteOpen, setIsDeleteOpen] = useState(false);
 
-  useEffect(() => {
-    fetchShipments();
-  }, []);
-
-  const fetchShipments = async () => {
+  // FIX: Wrapped in useCallback
+  const fetchShipments = useCallback(async () => {
     try {
       const response = await shipmentsApi.getAll();
       setShipments(response.data);
@@ -62,7 +59,12 @@ const Shipments = () => {
     } finally {
       setLoading(false);
     }
-  };
+  }, [toast]);
+
+  // FIX: Added fetchShipments dependency
+  useEffect(() => {
+    fetchShipments();
+  }, [fetchShipments]);
 
   const handleCreateShipment = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -259,7 +261,7 @@ const Shipments = () => {
                             <Button
                                 variant="ghost"
                                 size="icon"
-                                className="h-8 w-8 text-muted-foreground hover:text-destructive hover:bg-destructive/10 opacity-0 group-hover:opacity-100 transition-opacity"
+                                className="h-8 w-8 text-muted-foreground hover:text-destructive hover:bg-destructive/10"
                                 onClick={(e) => initiateDelete(e, shipment.id, shipment.status)}
                                 title="Delete Shipment"
                             >
