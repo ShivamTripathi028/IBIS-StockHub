@@ -2,27 +2,26 @@ from prisma import Prisma
 from prisma.enums import ShipmentStatus, OrderStatus
 
 async def get_stats(db: Prisma):
-    # 1. Product Stats
-    # count() is optimized by Prisma to use SELECT COUNT(*)
-    total_skus = await db.product.count()
+    # 1. Product Stats - UPDATED
+    # Only count SKUs that have physical stock (quantity > 0)
+    total_skus = await db.product.count(
+        where={'quantityInStock': {'gt': 0}}
+    )
     
-    # 2. Total Inventory Units - PERFORMANCE FIX
-    # Instead of fetching all rows, we ask the DB to sum the column.
-    # We use query_raw because the generated 'aggregate' method was causing issues for you.
-    # Note: We query the actual table name "Product" and column "quantity_in_stock"
+    # 2. Total Inventory Units
+    # We use query_raw for performance on the sum operation
     result = await db.query_raw('SELECT SUM(quantity_in_stock) as total FROM "Product"')
     
     # Handle case where result is None (empty DB)
     total_units = int(result[0]['total']) if result and result[0]['total'] is not None else 0
 
-    # 3. Low Stock - LOGIC FIX
+    # 3. Low Stock 
     # Only count items that are actually in stock (gt: 0) but running low (lte: 5).
-    # This ignores the 0-stock catalog items.
     low_stock_count = await db.product.count(
         where={
             'quantityInStock': {
-                'gt': 0,  # Greater than 0
-                'lte': 5  # Less than or equal to 5
+                'gt': 0,  
+                'lte': 5  
             }
         }
     )
@@ -48,7 +47,6 @@ async def get_stats(db: Prisma):
 async def get_low_stock_items(db: Prisma):
     """
     Get top 5 items running low.
-    Same logic: exclude 0 stock items from this specific list.
     """
     products = await db.product.find_many(
         where={

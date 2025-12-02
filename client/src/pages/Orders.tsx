@@ -1,21 +1,25 @@
-import { useState, useEffect, useCallback } from "react";
+import { useState, useEffect, useCallback, Fragment } from "react";
 import { 
   Plus, 
   Loader2, 
   CheckCircle, 
   XCircle, 
   Pause, 
+  Play,
   ShoppingCart, 
   Search, 
   Package, 
   User, 
   Layers, 
   Trash2, 
-  AlertCircle 
+  AlertCircle,
+  ChevronDown,
+  ChevronRight,
+  Box
 } from "lucide-react";
 import Navigation from "@/components/Navigation";
 import { Button } from "@/components/ui/button";
-import { Card, CardContent, CardHeader } from "@/components/ui/card";
+import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
 import { Badge } from "@/components/ui/badge";
 import { Tabs, TabsList, TabsTrigger } from "@/components/ui/tabs";
@@ -26,6 +30,17 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@
 import { ordersApi, productsApi } from "@/lib/api";
 import { useToast } from "@/hooks/use-toast";
 import { cn } from "@/lib/utils";
+import { AxiosError } from "axios";
+import { 
+  AlertDialog, 
+  AlertDialogAction, 
+  AlertDialogCancel, 
+  AlertDialogContent, 
+  AlertDialogDescription, 
+  AlertDialogFooter, 
+  AlertDialogHeader, 
+  AlertDialogTitle 
+} from "@/components/ui/alert-dialog";
 
 // -- Interfaces --
 
@@ -54,7 +69,6 @@ interface Order {
   createdAt: string;
 }
 
-// Form Row Interface
 interface OrderRow {
   id: number;
   product: ProductInfo | null;
@@ -68,6 +82,9 @@ const Orders = () => {
   const [loading, setLoading] = useState(true);
   const [activeTab, setActiveTab] = useState("all");
   
+  // -- Expanded Rows State --
+  const [expandedOrderIds, setExpandedOrderIds] = useState<Set<string>>(new Set());
+
   // -- Create Modal State --
   const [isCreateOpen, setIsCreateOpen] = useState(false);
   const [customerName, setCustomerName] = useState("");
@@ -80,6 +97,10 @@ const Orders = () => {
   // -- Autocomplete State --
   const [activeRowId, setActiveRowId] = useState<number | null>(null);
   const [suggestions, setSuggestions] = useState<ProductInfo[]>([]);
+
+  // -- Cancel Confirmation State --
+  const [isCancelOpen, setIsCancelOpen] = useState(false);
+  const [orderToCancel, setOrderToCancel] = useState<string | null>(null);
 
   const fetchOrders = useCallback(async () => {
     setLoading(true);
@@ -102,6 +123,17 @@ const Orders = () => {
   useEffect(() => {
     fetchOrders();
   }, [fetchOrders]);
+
+  // -- Toggle Row Logic --
+  const toggleOrder = (orderId: string) => {
+    const newExpanded = new Set(expandedOrderIds);
+    if (newExpanded.has(orderId)) {
+      newExpanded.delete(orderId);
+    } else {
+      newExpanded.add(orderId);
+    }
+    setExpandedOrderIds(newExpanded);
+  };
 
   // -- Product Search Logic --
   const searchProducts = useCallback(async (query: string) => {
@@ -195,16 +227,20 @@ const Orders = () => {
       setOrderSource("Local");
       setRows([{ id: 1, product: null, searchQuery: "", quantity: "" }]);
       fetchOrders();
-    } catch (error) {
-      console.error(error);
-      toast({ title: "Error", description: "Failed to create order", variant: "destructive" });
+    } catch (error: unknown) {
+        let errorMessage = "Failed to create order";
+        if (error instanceof AxiosError && error.response?.data?.detail) {
+            errorMessage = error.response.data.detail;
+        }
+        toast({ title: "Error", description: errorMessage, variant: "destructive" });
     } finally {
       setSubmitting(false);
     }
   };
 
   // -- Order Actions --
-  const handleCompleteOrder = async (orderId: string) => {
+  const handleCompleteOrder = async (e: React.MouseEvent, orderId: string) => {
+    e.stopPropagation();
     try {
       await ordersApi.complete(orderId);
       toast({ title: "Success", description: "Order marked as completed" });
@@ -214,23 +250,49 @@ const Orders = () => {
     }
   };
 
-  const handleCancelOrder = async (orderId: string) => {
+  const initiateCancelOrder = (e: React.MouseEvent, orderId: string) => {
+    e.stopPropagation();
+    setOrderToCancel(orderId);
+    setIsCancelOpen(true);
+  };
+
+  const confirmCancelOrder = async () => {
+    if (!orderToCancel) return;
     try {
-      await ordersApi.cancel(orderId);
-      toast({ title: "Success", description: "Order cancelled" });
+      await ordersApi.cancel(orderToCancel);
+      toast({ title: "Success", description: "Order cancelled successfully." });
       fetchOrders();
     } catch (error) {
       toast({ title: "Error", description: "Failed to cancel order", variant: "destructive" });
+    } finally {
+      setIsCancelOpen(false);
+      setOrderToCancel(null);
     }
   };
 
-  const handlePutOnHold = async (orderId: string) => {
+  const handlePutOnHold = async (e: React.MouseEvent, orderId: string) => {
+    e.stopPropagation();
     try {
       await ordersApi.hold(orderId);
-      toast({ title: "Success", description: "Order put on hold" });
+      toast({ title: "On Hold", description: "Order paused and stock released" });
       fetchOrders();
     } catch (error) {
       toast({ title: "Error", description: "Failed to put order on hold", variant: "destructive" });
+    }
+  };
+
+  const handleResumeOrder = async (e: React.MouseEvent, orderId: string) => {
+    e.stopPropagation();
+    try {
+      await ordersApi.resume(orderId);
+      toast({ title: "Resumed", description: "Order active and stock reserved" });
+      fetchOrders();
+    } catch (error: unknown) {
+        let errorMessage = "Failed to resume order";
+        if (error instanceof AxiosError && error.response?.data?.detail) {
+            errorMessage = error.response.data.detail;
+        }
+        toast({ title: "Error", description: errorMessage, variant: "destructive" });
     }
   };
 
@@ -263,14 +325,17 @@ const Orders = () => {
                         <Plus className="mr-2 h-4 w-4" /> Create New Order
                     </Button>
                 </DialogTrigger>
-                <DialogContent className="max-w-4xl max-h-[90vh] flex flex-col">
+                
+                {/* CHANGED: Allow DialogContent to scroll vertically (overflow-y-auto), removed flex flex-col constraints that clipped inner content */}
+                <DialogContent className="max-w-4xl max-h-[90vh] overflow-y-auto">
                     <DialogHeader>
                         <DialogTitle>Create Sales Order</DialogTitle>
                         <DialogDescription>Record a new local or Amazon sale.</DialogDescription>
                     </DialogHeader>
                     
-                    <form onSubmit={handleCreateOrder} className="flex-1 flex flex-col gap-6 py-4 px-1 overflow-hidden">
-                        <div className="grid grid-cols-2 gap-4 shrink-0">
+                    {/* CHANGED: Removed overflow-hidden and flex constraints so dropdowns can overflow or scroll naturally with the modal */}
+                    <form onSubmit={handleCreateOrder} className="flex flex-col gap-6 py-4 px-1">
+                        <div className="grid grid-cols-2 gap-4">
                             <div className="space-y-2">
                                 <Label>Customer Name</Label>
                                 <div className="relative">
@@ -297,16 +362,17 @@ const Orders = () => {
                             </div>
                         </div>
 
-                        <div className="flex-1 min-h-0 flex flex-col space-y-3">
+                        <div className="flex flex-col space-y-3">
                             <Label>Order Items</Label>
-                            <div className="flex-1 overflow-y-auto pr-2 space-y-3">
+                            <div className="space-y-3">
                                 {rows.map((row) => {
                                     const stock = row.product?.quantityInStock || 0;
                                     const reqQty = parseInt(row.quantity) || 0;
                                     const isLowStock = row.product && reqQty > stock;
 
                                     return (
-                                        <div key={row.id} className="flex gap-3 items-start p-1">
+                                        <div key={row.id} className="flex gap-3 items-start p-1 relative">
+                                            {/* Search */}
                                             <div className="flex-1 relative">
                                                 <div className="relative">
                                                     <Package className="absolute left-3 top-1/2 transform -translate-y-1/2 h-4 w-4 text-muted-foreground" />
@@ -319,6 +385,7 @@ const Orders = () => {
                                                         autoComplete="off"
                                                     />
                                                 </div>
+                                                {/* Dropdown */}
                                                 {activeRowId === row.id && suggestions.length > 0 && (
                                                     <div className="absolute z-50 w-full mt-1 bg-popover border border-border rounded-md shadow-lg max-h-60 overflow-auto">
                                                         {suggestions.map((p) => (
@@ -377,7 +444,7 @@ const Orders = () => {
                             </div>
                         </div>
 
-                        <div className="flex justify-between pt-2 border-t mt-auto shrink-0">
+                        <div className="flex justify-between pt-2 border-t mt-4">
                             <Button type="button" variant="outline" onClick={addRow} className="gap-2">
                                 <Plus className="h-4 w-4" /> Add Line Item
                             </Button>
@@ -391,6 +458,7 @@ const Orders = () => {
             </Dialog>
         </div>
         
+        {/* Filters */}
         <Tabs value={activeTab} onValueChange={setActiveTab} className="mb-6">
             <TabsList>
             <TabsTrigger value="all">All Orders</TabsTrigger>
@@ -401,6 +469,7 @@ const Orders = () => {
             </TabsList>
         </Tabs>
 
+        {/* Orders Table */}
         <Card className="border-none shadow-md">
           <CardHeader className="bg-card rounded-t-lg border-b py-4">
              <div className="flex items-center gap-2">
@@ -422,82 +491,128 @@ const Orders = () => {
               <Table>
                 <TableHeader className="bg-muted/30">
                   <TableRow>
-                    {/* CHANGED: Removed Order ID Column */}
-                    <TableHead className="pl-6 w-[25%]">Customer</TableHead>
-                    <TableHead className="w-[45%]">Items</TableHead>
-                    <TableHead className="w-[15%]">Status</TableHead>
-                    <TableHead className="text-right pr-6 w-[15%]">Actions</TableHead>
+                    <TableHead className="w-[50px]"></TableHead>
+                    <TableHead className="pl-0 w-[40%]">Customer</TableHead>
+                    <TableHead className="w-[15%]">Total Items</TableHead>
+                    <TableHead className="w-[20%]">Status</TableHead>
+                    <TableHead className="text-right pr-6 w-[20%]">Actions</TableHead>
                   </TableRow>
                 </TableHeader>
                 <TableBody>
-                  {orders.map((order) => (
-                    <TableRow key={order.id} className="hover:bg-muted/30">
-                      <TableCell className="pl-6 align-top py-4">
-                        <div className="flex flex-col">
-                            <span className="font-medium text-base">{order.customerName}</span>
-                        </div>
-                      </TableCell>
-                      
-                      {/* Items Cell with New Grid Layout */}
-                      <TableCell className="align-top py-4">
-                        <div className="w-full flex flex-col gap-2">
-                            {order.lineItems && order.lineItems.length > 0 ? (
-                                order.lineItems.map((p, i) => (
-                                    <div key={i} className={cn(
-                                        "grid grid-cols-[100px_1fr_60px] items-center gap-4 py-1", 
-                                        i !== order.lineItems.length - 1 && "border-b border-dashed border-muted/50 pb-2 mb-1"
-                                    )}>
-                                        <span className="text-xs font-mono text-muted-foreground truncate" title={p.product.sku}>
-                                            {p.product.sku}
-                                        </span>
-                                        <span className="text-sm font-medium leading-tight truncate" title={p.product.name}>
-                                            {p.product.name}
-                                        </span>
-                                        <div className="text-right">
-                                            <Badge variant="secondary" className="h-5 px-1.5 font-mono text-[10px]">
-                                                x{p.quantity}
-                                            </Badge>
-                                        </div>
+                  {orders.map((order) => {
+                    const isExpanded = expandedOrderIds.has(order.id);
+                    const totalItems = order.lineItems?.reduce((sum, item) => sum + item.quantity, 0) || 0;
+
+                    return (
+                        <Fragment key={order.id}>
+                            <TableRow 
+                                className={cn("cursor-pointer transition-colors hover:bg-muted/30", isExpanded && "bg-muted/30")} 
+                                onClick={() => toggleOrder(order.id)}
+                            >
+                                <TableCell className="text-muted-foreground">
+                                    {isExpanded ? <ChevronDown className="h-4 w-4" /> : <ChevronRight className="h-4 w-4" />}
+                                </TableCell>
+                                <TableCell className="pl-0 font-medium">
+                                    {order.customerName}
+                                </TableCell>
+                                <TableCell className="text-muted-foreground">
+                                    {totalItems} units
+                                </TableCell>
+                                <TableCell>
+                                    {getStatusBadge(order.status)}
+                                </TableCell>
+                                <TableCell className="text-right pr-6">
+                                    <div className="flex justify-end gap-1" onClick={(e) => e.stopPropagation()}>
+                                        {/* Awaiting Stock: View Only */}
+                                        {order.status === "AWAITING_STOCK" && (
+                                            <span className="text-xs text-muted-foreground italic py-2 pr-2">Wait for Shipment</span>
+                                        )}
+
+                                        {/* Ready to Ship: Complete, Hold, Cancel */}
+                                        {order.status === "READY_TO_SHIP" && (
+                                            <>
+                                                <Button size="icon" variant="ghost" onClick={(e) => handleCompleteOrder(e, order.id)} title="Complete">
+                                                    <CheckCircle className="h-4 w-4 text-green-600" />
+                                                </Button>
+                                                <Button size="icon" variant="ghost" onClick={(e) => handlePutOnHold(e, order.id)} title="Hold">
+                                                    <Pause className="h-4 w-4 text-orange-500" />
+                                                </Button>
+                                                <Button size="icon" variant="ghost" onClick={(e) => initiateCancelOrder(e, order.id)} title="Cancel">
+                                                    <XCircle className="h-4 w-4 text-destructive" />
+                                                </Button>
+                                            </>
+                                        )}
+
+                                        {/* On Hold: Resume, Cancel */}
+                                        {order.status === "ON_HOLD" && (
+                                            <>
+                                                <Button size="icon" variant="ghost" onClick={(e) => handleResumeOrder(e, order.id)} title="Resume">
+                                                    <Play className="h-4 w-4 text-blue-600" />
+                                                </Button>
+                                                <Button size="icon" variant="ghost" onClick={(e) => initiateCancelOrder(e, order.id)} title="Cancel">
+                                                    <XCircle className="h-4 w-4 text-destructive" />
+                                                </Button>
+                                            </>
+                                        )}
                                     </div>
-                                ))
-                            ) : (
-                                <span className="text-xs text-muted-foreground italic">No items</span>
+                                </TableCell>
+                            </TableRow>
+                            
+                            {isExpanded && (
+                                <TableRow className="bg-muted/10 hover:bg-muted/10 border-b border-muted/50">
+                                    <TableCell colSpan={5} className="p-0">
+                                        <div className="px-12 py-4 bg-muted/10">
+                                            <div className="rounded-md border bg-background overflow-hidden shadow-sm">
+                                                <div className="grid grid-cols-[100px_1fr_80px] gap-4 p-2 bg-muted/30 text-xs font-medium text-muted-foreground border-b">
+                                                    <span>SKU</span>
+                                                    <span>Product Name</span>
+                                                    <span className="text-right">Quantity</span>
+                                                </div>
+                                                {order.lineItems && order.lineItems.length > 0 ? (
+                                                    order.lineItems.map((item, index) => (
+                                                        <div key={index} className="grid grid-cols-[100px_1fr_80px] gap-4 p-3 border-b last:border-0 items-center hover:bg-muted/10 transition-colors">
+                                                            <span className="text-xs font-mono text-muted-foreground">{item.product.sku}</span>
+                                                            <span className="text-sm font-medium">{item.product.name}</span>
+                                                            <span className="text-right font-mono font-semibold">{item.quantity}</span>
+                                                        </div>
+                                                    ))
+                                                ) : (
+                                                    <div className="p-4 text-center text-sm text-muted-foreground">No items in this order.</div>
+                                                )}
+                                            </div>
+                                        </div>
+                                    </TableCell>
+                                </TableRow>
                             )}
-                        </div>
-                      </TableCell>
-
-                      <TableCell className="align-top py-4">
-                        {getStatusBadge(order.status)}
-                      </TableCell>
-
-                      <TableCell className="text-right pr-6 align-top py-4">
-                        <div className="flex justify-end gap-1">
-                          {order.status !== "COMPLETED" && order.status !== "CANCELLED" && (
-                            <>
-                              {order.status === "READY_TO_SHIP" && (
-                                  <Button size="icon" variant="ghost" onClick={() => handleCompleteOrder(order.id)} title="Complete Order">
-                                    <CheckCircle className="h-4 w-4 text-green-600" />
-                                  </Button>
-                              )}
-                              {order.status !== "ON_HOLD" && (
-                                  <Button size="icon" variant="ghost" onClick={() => handlePutOnHold(order.id)} title="Hold">
-                                    <Pause className="h-4 w-4 text-orange-500" />
-                                  </Button>
-                              )}
-                              <Button size="icon" variant="ghost" onClick={() => handleCancelOrder(order.id)} title="Cancel">
-                                <XCircle className="h-4 w-4 text-destructive" />
-                              </Button>
-                            </>
-                          )}
-                        </div>
-                      </TableCell>
-                    </TableRow>
-                  ))}
+                        </Fragment>
+                    );
+                  })}
                 </TableBody>
               </Table>
             )}
           </CardContent>
         </Card>
+
+        {/* Cancel Confirmation Modal */}
+        <AlertDialog open={isCancelOpen} onOpenChange={setIsCancelOpen}>
+          <AlertDialogContent>
+            <AlertDialogHeader>
+              <AlertDialogTitle>Cancel Order?</AlertDialogTitle>
+              <AlertDialogDescription>
+                Are you sure you want to cancel this order?
+                <br />
+                The order request by the customer will be deleted permanently.
+              </AlertDialogDescription>
+            </AlertDialogHeader>
+            <AlertDialogFooter>
+              <AlertDialogCancel>Keep Order</AlertDialogCancel>
+              <AlertDialogAction onClick={confirmCancelOrder} className="bg-destructive hover:bg-destructive/90">
+                Confirm Cancel
+              </AlertDialogAction>
+            </AlertDialogFooter>
+          </AlertDialogContent>
+        </AlertDialog>
+
       </div>
     </div>
   );

@@ -13,3 +13,12 @@ async def get_all_inventory_items(db: Prisma):
         },
         order={'name': 'asc'}
     )
+
+async def reset_inventory(db: Prisma):
+    """
+    Resets quantityInStock to 0 for ALL products.
+    """
+    return await db.product.update_many(
+        where={}, # No filter matches all records
+        data={'quantityInStock': 0}
+    )

@@ -1,5 +1,5 @@
 import { useState, useEffect } from "react";
-import { Search, Loader2, Inbox, SearchX, ExternalLink, ArrowUpDown, ArrowUp, ArrowDown } from "lucide-react";
+import { Search, Loader2, Inbox, SearchX, ExternalLink, ArrowUpDown, ArrowUp, ArrowDown, Trash2 } from "lucide-react";
 import Navigation from "@/components/Navigation";
 import {
   Card,
@@ -17,7 +17,17 @@ import {
   TableRow,
 } from "@/components/ui/table";
 import { Input } from "@/components/ui/input";
-import { Button } from "@/components/ui/button"; // Added Button import
+import { Button } from "@/components/ui/button";
+import { 
+  AlertDialog, 
+  AlertDialogAction, 
+  AlertDialogCancel, 
+  AlertDialogContent, 
+  AlertDialogDescription, 
+  AlertDialogFooter, 
+  AlertDialogHeader, 
+  AlertDialogTitle 
+} from "@/components/ui/alert-dialog";
 import { inventoryApi } from "@/lib/api";
 import { useToast } from "@/hooks/use-toast";
 
@@ -36,6 +46,10 @@ const Inventory = () => {
   const [loading, setLoading] = useState(true);
   const [searchQuery, setSearchQuery] = useState("");
   const [sortOrder, setSortOrder] = useState<SortOrder>(null);
+
+  // New state for Clear Stock modal
+  const [isClearOpen, setIsClearOpen] = useState(false);
+  const [isClearing, setIsClearing] = useState(false);
 
   useEffect(() => {
     fetchInventory();
@@ -85,6 +99,28 @@ const Inventory = () => {
     }
   };
 
+  const handleClearStock = async () => {
+    setIsClearing(true);
+    try {
+      await inventoryApi.clearStock();
+      toast({
+        title: "Inventory Cleared",
+        description: "All product quantities have been reset to 0.",
+      });
+      fetchInventory();
+    } catch (error) {
+      console.error(error);
+      toast({
+        title: "Error",
+        description: "Failed to clear inventory.",
+        variant: "destructive",
+      });
+    } finally {
+      setIsClearing(false);
+      setIsClearOpen(false);
+    }
+  };
+
   const toggleSort = () => {
     if (sortOrder === null) setSortOrder('asc');
     else if (sortOrder === 'asc') setSortOrder('desc');
@@ -127,14 +163,26 @@ const Inventory = () => {
                 />
               </div>
               
-              <Button 
-                variant="outline" 
-                onClick={toggleSort}
-                className="h-14 px-6 rounded-xl border-input bg-background shadow-sm hover:bg-accent hover:text-accent-foreground gap-2 min-w-[160px]"
-              >
-                {getSortIcon()}
-                <span>{getSortLabel()}</span>
-              </Button>
+              <div className="flex gap-2">
+                {/* NEW BUTTON: Clear Stock */}
+                <Button 
+                    variant="destructive" 
+                    onClick={() => setIsClearOpen(true)}
+                    className="h-14 px-6 rounded-xl shadow-sm gap-2"
+                >
+                    <Trash2 className="h-4 w-4" />
+                    <span>Clear Stock</span>
+                </Button>
+
+                <Button 
+                    variant="outline" 
+                    onClick={toggleSort}
+                    className="h-14 px-6 rounded-xl border-input bg-background shadow-sm hover:bg-accent hover:text-accent-foreground gap-2 min-w-[160px]"
+                >
+                    {getSortIcon()}
+                    <span>{getSortLabel()}</span>
+                </Button>
+              </div>
             </div>
 
             {loading ? (
@@ -203,6 +251,30 @@ const Inventory = () => {
             )}
           </CardContent>
         </Card>
+
+        {/* Clear Stock Confirmation Modal */}
+        <AlertDialog open={isClearOpen} onOpenChange={setIsClearOpen}>
+          <AlertDialogContent>
+            <AlertDialogHeader>
+              <AlertDialogTitle className="text-destructive">Reset Entire Inventory?</AlertDialogTitle>
+              <AlertDialogDescription>
+                This will set the stock quantity of <strong>ALL products</strong> to 0. 
+                This action is for development testing and cannot be undone.
+              </AlertDialogDescription>
+            </AlertDialogHeader>
+            <AlertDialogFooter>
+              <AlertDialogCancel>Cancel</AlertDialogCancel>
+              <AlertDialogAction 
+                onClick={handleClearStock} 
+                className="bg-destructive hover:bg-destructive/90"
+                disabled={isClearing}
+              >
+                {isClearing ? "Resetting..." : "Confirm Reset"}
+              </AlertDialogAction>
+            </AlertDialogFooter>
+          </AlertDialogContent>
+        </AlertDialog>
+
       </div>
     </div>
   );

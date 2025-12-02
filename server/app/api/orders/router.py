@@ -57,3 +57,14 @@ async def hold_order_route(order_id: str, db: Prisma = Depends(lambda: db_client
     if not updated_order:
         raise HTTPException(status_code=404, detail="Order not found")
     return updated_order  
+
+@router.post("/{order_id}/resume", response_model=Order)
+async def resume_order_route(order_id: str, db: Prisma = Depends(lambda: db_client)):
+    """Resume an on-hold order (Deducts stock again)."""
+    try:
+        updated_order = await service.resume_order(db, order_id)
+        if not updated_order:
+            raise HTTPException(status_code=404, detail="Order not found")
+        return updated_order
+    except ValueError as e:
+        raise HTTPException(status_code=400, detail=str(e))
