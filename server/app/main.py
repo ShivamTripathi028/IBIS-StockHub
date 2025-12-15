@@ -1,40 +1,55 @@
 from fastapi import FastAPI
-from app.db.session import db_client
-from app.api.router import api_router
 from fastapi.middleware.cors import CORSMiddleware
+from contextlib import asynccontextmanager
+from apscheduler.schedulers.asyncio import AsyncIOScheduler
 
-app = FastAPI(
-    title="Stock Flow Hub API",
-    description="Backend for the Inventory Management System.",
-    version="1.0.0"
-)
+# Import your sync function
+from app.services.amazon_sync import sync_amazon_orders
 
-# --- SECURITY FIX: Strict Origins ---
-# Only allow specific domains to talk to the backend.
-origins = [
-    "http://localhost:8080",      # Your local frontend
-    "http://127.0.0.1:8080",      # Localhost IP variant
-    # "https://your-production-domain.com", # Add your live domain here later
-]
+# --- FIX IS HERE: Import 'api_router' and alias it as 'router' ---
+from app.api.router import api_router as router 
+from app.db.session import db_client
 
-app.add_middleware(
-    CORSMiddleware,
-    allow_origins=origins,        
-    allow_credentials=True,
-    allow_methods=["GET", "POST", "PUT", "DELETE", "PATCH", "OPTIONS"], # Explicit methods
-    allow_headers=["*"],          # Headers are usually safe to keep open for auth/content-type
-)
-
-@app.on_event("startup")
-async def startup():
+# --- LIFESPAN MANAGER (Starts/Stops Scheduler) ---
+@asynccontextmanager
+async def lifespan(app: FastAPI):
+    # 1. Start Database
     await db_client.connect()
-
-@app.on_event("shutdown")
-async def shutdown():
+    
+    # 2. Start Scheduler
+    scheduler = AsyncIOScheduler()
+    
+    # Run sync immediately on startup (optional, good for testing)
+    scheduler.add_job(sync_amazon_orders, 'date') 
+    
+    # Run sync every 10 minutes forever
+    scheduler.add_job(sync_amazon_orders, 'interval', minutes=10)
+    
+    scheduler.start()
+    print("⏰ [Scheduler] Amazon Sync started (Runs every 10 mins)")
+    
+    yield
+    
+    # 3. Shutdown
+    print("🛑 [Scheduler] Shutting down...")
+    scheduler.shutdown()
     await db_client.disconnect()
 
-@app.get("/")
-async def read_root():
-    return {"message": "Welcome to the Stock Flow Hub API"}
+# --- APP INITIALIZATION ---
+app = FastAPI(title="StockHub API", version="1.0", lifespan=lifespan)
 
-app.include_router(api_router)
+# CORS (Allow Frontend to connect)
+app.add_middleware(
+    CORSMiddleware,
+    allow_origins=["*"],
+    allow_credentials=True,
+    allow_methods=["*"],
+    allow_headers=["*"],
+)
+
+# Include your API Routes
+app.include_router(router, prefix="/api")
+
+@app.get("/")
+def read_root():
+    return {"message": "StockHub Server is Running 🚀"}

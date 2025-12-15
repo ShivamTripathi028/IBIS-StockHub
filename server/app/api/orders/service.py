@@ -1,35 +1,92 @@
+import os
+import aiohttp
+import asyncio
 from prisma import Prisma
-from prisma.enums import OrderStatus, OrderSource
+from prisma.enums import OrderStatus
 from .schemas import OrderCreate
-from fastapi import HTTPException
-from datetime import datetime, timedelta # Added timedelta
 
-# --- NEW FUNCTION: Cleanup Logic ---
-async def cleanup_old_cancelled_orders(db: Prisma):
+# --- NOTIFICATION HELPER ---
+async def send_whatsapp_notification(order):
     """
-    Deletes orders that have been CANCELLED for more than 3 days.
-    Uses 'updatedAt' which represents the time the status was changed to CANCELLED.
+    Sends a strictly professional WhatsApp notification.
+    Shows SKU, Description, and Quantity with BOLD labels.
     """
-    three_days_ago = datetime.now() - timedelta(days=3)
+    token = os.getenv("WHATSAPP_TOKEN")
+    phone_id = os.getenv("WHATSAPP_PHONE_ID")
+    recipient = os.getenv("WHATSAPP_RECIPIENT")
+
+    if not all([token, phone_id, recipient]):
+        print("⚠️ WhatsApp keys missing in .env - Skipping notification.")
+        return
+
+    # 1. Build the Item Details String
+    items_list = ""
     
-    await db.order.delete_many(
-        where={
-            'status': OrderStatus.CANCELLED,
-            'updatedAt': {'lt': three_days_ago}
-        }
+    for line in order.lineItems:
+        prod = line.product
+        
+        # Added asterisks around labels to make them BOLD
+        items_list += (
+            f"*SKU:* {prod.sku}\n"
+            f"*Item Description:* {prod.name}\n"
+            f"*Quantity:* {line.quantity}\n"
+            f"--------------------------------\n"
+        )
+
+    # 2. Construct the Message Body
+    message_body = (
+        f"*NEW ORDER NOTIFICATION*\n"
+        f"========================\n"
+        f"Customer: {order.customerName}\n"
+        f"Order ID: {order.id}\n\n"
+        f"ORDER DETAILS\n"
+        f"========================\n"
+        f"{items_list}"
     )
 
-async def get_all(db: Prisma, status: OrderStatus | None = None):
-    # 1. Run the cleanup before fetching
-    await cleanup_old_cancelled_orders(db)
+    url = f"https://graph.facebook.com/v17.0/{phone_id}/messages"
+    
+    headers = {
+        "Authorization": f"Bearer {token}",
+        "Content-Type": "application/json"
+    }
 
-    # 2. Fetch the clean list
+    payload = {
+        "messaging_product": "whatsapp",
+        "to": recipient,
+        "type": "text",
+        "text": {
+            "body": message_body
+        }
+    }
+
+    try:
+        async with aiohttp.ClientSession() as session:
+            async with session.post(url, headers=headers, json=payload) as response:
+                if response.status == 200:
+                    print(f"✅ WhatsApp Alert Sent for Order {order.id}")
+                else:
+                    body = await response.text()
+                    print(f"❌ WhatsApp Failed: {body}")
+    except Exception as e:
+        print(f"❌ WhatsApp Error: {str(e)}")
+
+
+# --- CORE SERVICE LOGIC ---
+
+async def get_all(db: Prisma, status: OrderStatus | None = None):
     query = {}
     if status:
         query['where'] = {'status': status}
     
     return await db.order.find_many(
-        include={'lineItems': {'include': {'product': True}}},
+        include={
+            'lineItems': {
+                'include': {
+                    'product': True
+                }
+            }
+        },
         order={'createdAt': 'desc'},
         **query
     )
@@ -42,32 +99,23 @@ async def get_by_id(db: Prisma, order_id: str):
 
 async def create(db: Prisma, order_data: OrderCreate):
     async with db.tx() as transaction:
-        # 1. Validation & Deduction Loop
+        can_fulfill_all = True
         for item in order_data.line_items:
             product = await transaction.product.find_unique(where={'id': item.product_id})
-            
-            if not product:
-                raise ValueError(f"Product {item.product_id} not found")
-            
-            if product.quantityInStock < item.quantity:
-                raise ValueError(f"Insufficient stock for {product.name}. Available: {product.quantityInStock}, Requested: {item.quantity}")
-
-            # Deduct Stock
-            await transaction.product.update(
-                where={'id': item.product_id},
-                data={'quantityInStock': {'decrement': item.quantity}}
-            )
-
-        # 2. Create Order
+            if not product or product.quantityInStock < item.quantity:
+                can_fulfill_all = False
+                break
+        
+        initial_status = OrderStatus.READY_TO_SHIP if can_fulfill_all else OrderStatus.AWAITING_STOCK
+        
         new_order = await transaction.order.create(
             data={
                 'customerName': order_data.customer_name,
                 'source': order_data.source,
-                'status': OrderStatus.READY_TO_SHIP
+                'status': initial_status
             }
         )
-
-        # 3. Create Line Items
+        
         for item in order_data.line_items:
             await transaction.orderlineitem.create(
                 data={
@@ -77,90 +125,47 @@ async def create(db: Prisma, order_data: OrderCreate):
                 }
             )
             
-    return await get_by_id(db, new_order.id)
+    # Fetch complete order with products
+    created_order = await get_by_id(db, new_order.id)
+
+    # --- NOTIFICATION ---
+    await send_whatsapp_notification(created_order)
+    # --------------------
+
+    return created_order
 
 async def complete_order(db: Prisma, order_id: str):
-    order = await get_by_id(db, order_id)
-    if not order: return None
-    
-    if order.status != OrderStatus.READY_TO_SHIP:
-        raise ValueError("Order must be Ready to Ship to complete.")
+    order_to_complete = await get_by_id(db, order_id)
+    if not order_to_complete:
+        return None
 
-    return await db.order.update(
-        where={'id': order_id},
-        data={'status': OrderStatus.COMPLETED},
-        include={'lineItems': {'include': {'product': True}}}
-    )
-
-async def cancel_order(db: Prisma, order_id: str):
-    order = await get_by_id(db, order_id)
-    if not order: return None
+    if order_to_complete.status != OrderStatus.READY_TO_SHIP:
+        raise ValueError("Order is not in a state that can be completed.")
 
     async with db.tx() as transaction:
-        # Return stock if it was reserved
-        if order.status == OrderStatus.READY_TO_SHIP:
-            for item in order.lineItems:
-                await transaction.product.update(
-                    where={'id': item.productId},
-                    data={'quantityInStock': {'increment': item.quantity}}
-                )
-        
-        updated_order = await transaction.order.update(
-            where={'id': order_id},
-            data={'status': OrderStatus.CANCELLED},
-            include={'lineItems': {'include': {'product': True}}}
-        )
-    
-    return updated_order
-
-async def hold_order(db: Prisma, order_id: str):
-    order = await get_by_id(db, order_id)
-    if not order: return None
-
-    if order.status == OrderStatus.ON_HOLD:
-        return order
-
-    async with db.tx() as transaction:
-        # Release stock
-        if order.status == OrderStatus.READY_TO_SHIP:
-            for item in order.lineItems:
-                await transaction.product.update(
-                    where={'id': item.productId},
-                    data={'quantityInStock': {'increment': item.quantity}}
-                )
-
-        updated_order = await transaction.order.update(
-            where={'id': order_id},
-            data={'status': OrderStatus.ON_HOLD},
-            include={'lineItems': {'include': {'product': True}}}
-        )
-        
-    return updated_order
-
-async def resume_order(db: Prisma, order_id: str):
-    order = await get_by_id(db, order_id)
-    if not order: return None
-
-    if order.status != OrderStatus.ON_HOLD:
-        raise ValueError("Only orders On Hold can be resumed.")
-
-    async with db.tx() as transaction:
-        # 1. Check & Deduct Stock
-        for item in order.lineItems:
-            product = await transaction.product.find_unique(where={'id': item.productId})
-            if product.quantityInStock < item.quantity:
-                raise ValueError(f"Cannot resume. Insufficient stock for {product.name}")
-            
+        for item in order_to_complete.lineItems:
             await transaction.product.update(
                 where={'id': item.productId},
                 data={'quantityInStock': {'decrement': item.quantity}}
             )
-
-        # 2. Update Status
-        updated_order = await transaction.order.update(
+        
+        await transaction.order.update(
             where={'id': order_id},
-            data={'status': OrderStatus.READY_TO_SHIP},
-            include={'lineItems': {'include': {'product': True}}}
+            data={'status': OrderStatus.COMPLETED}
         )
+    
+    return await get_by_id(db, order_id)
 
-    return updated_order
+async def cancel_order(db: Prisma, order_id: str):
+    return await db.order.update(
+        where={'id': order_id},
+        data={'status': OrderStatus.CANCELLED},
+        include={'lineItems': {'include': {'product': True}}}
+    )
+
+async def hold_order(db: Prisma, order_id: str):
+    return await db.order.update(
+        where={'id': order_id},
+        data={'status': OrderStatus.ON_HOLD},
+        include={'lineItems': {'include': {'product': True}}}
+    )
