@@ -6,11 +6,11 @@ from apscheduler.schedulers.asyncio import AsyncIOScheduler
 # Import your sync function
 from app.services.amazon_sync import sync_amazon_orders
 
-# --- FIX IS HERE: Import 'api_router' and alias it as 'router' ---
+# Import the router (aliased correctly)
 from app.api.router import api_router as router 
 from app.db.session import db_client
 
-# --- LIFESPAN MANAGER (Starts/Stops Scheduler) ---
+# --- LIFESPAN MANAGER ---
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     # 1. Start Database
@@ -18,13 +18,8 @@ async def lifespan(app: FastAPI):
     
     # 2. Start Scheduler
     scheduler = AsyncIOScheduler()
-    
-    # Run sync immediately on startup (optional, good for testing)
-    scheduler.add_job(sync_amazon_orders, 'date') 
-    
-    # Run sync every 10 minutes forever
-    scheduler.add_job(sync_amazon_orders, 'interval', minutes=10)
-    
+    scheduler.add_job(sync_amazon_orders, 'date')           # Run once now
+    scheduler.add_job(sync_amazon_orders, 'interval', minutes=10) # Run every 10 mins
     scheduler.start()
     print("⏰ [Scheduler] Amazon Sync started (Runs every 10 mins)")
     
@@ -38,7 +33,6 @@ async def lifespan(app: FastAPI):
 # --- APP INITIALIZATION ---
 app = FastAPI(title="StockHub API", version="1.0", lifespan=lifespan)
 
-# CORS (Allow Frontend to connect)
 app.add_middleware(
     CORSMiddleware,
     allow_origins=["*"],
@@ -47,8 +41,8 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
-# Include your API Routes
-app.include_router(router, prefix="/api")
+# --- FIX IS HERE: No prefix needed (router.py already has it) ---
+app.include_router(router)
 
 @app.get("/")
 def read_root():
