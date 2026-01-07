@@ -12,7 +12,9 @@ fi
 # Step 1: Install all Python and Node.js dependencies.
 echo "Installing Python and Node.js dependencies..."
 pip install --no-cache-dir -r requirements.txt
-npm install
+
+# FIX: Explicitly install prisma since there is no package.json in the server folder
+npm install prisma
 
 # Step 2: Check for the one-time reset flag.
 if [[ "$RUN_DB_RESET_ONCE" == "true" ]]; then
@@ -40,7 +42,6 @@ else
 fi
 
 # Step 3: Explicitly generate the Prisma Client for Python.
-# THIS IS THE FIX. It ensures the client code is always available.
 echo "Generating Prisma Client for Python..."
 npx prisma generate
 
