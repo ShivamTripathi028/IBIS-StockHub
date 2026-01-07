@@ -13,8 +13,8 @@ fi
 echo "Installing Python and Node.js dependencies..."
 pip install --no-cache-dir -r requirements.txt
 
-# FIX: Install specific version of Prisma CLI (v5) to support 'url' in schema
-npm install prisma@5.22.0
+# FIX: Install exactly v5.17.0 to match the Python Prisma Client v0.15.0
+npm install prisma@5.17.0
 
 # Step 2: Check for the one-time reset flag.
 if [[ "$RUN_DB_RESET_ONCE" == "true" ]]; then
