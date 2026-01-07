@@ -235,14 +235,14 @@ const Inventory = () => {
                     </DialogContent>
                 </Dialog>
 
-                <Button 
+                {/* <Button 
                     variant="destructive" 
                     onClick={() => setIsClearOpen(true)}
                     className="h-14 px-6 rounded-xl shadow-sm gap-2"
                 >
                     <Trash2 className="h-4 w-4" />
                     <span className="hidden md:inline">Clear Stock</span>
-                </Button>
+                </Button> */}
 
                 <Button 
                     variant="outline" 
