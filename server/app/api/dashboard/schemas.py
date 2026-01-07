@@ -5,7 +5,9 @@ class DashboardStats(BaseModel):
     total_units: int
     low_stock_count: int
     pending_shipments: int
-    active_orders: int
+    # [CHANGED] Replaced generic 'active_orders' with specific metrics
+    orders_ready: int    # Actionable (Ready to Ship)
+    orders_waiting: int  # Blocked (Awaiting Stock)
     
 class LowStockItem(BaseModel):
     id: str

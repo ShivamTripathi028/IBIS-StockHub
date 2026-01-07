@@ -68,9 +68,6 @@ CREATE TABLE "order_line_items" (
 -- CreateIndex
 CREATE UNIQUE INDEX "Product_sku_key" ON "Product"("sku");
 
--- CreateIndex
-CREATE UNIQUE INDEX "shipment_requests_fulfilling_order_id_key" ON "shipment_requests"("fulfilling_order_id");
-
 -- AddForeignKey
 ALTER TABLE "shipment_requests" ADD CONSTRAINT "shipment_requests_shipmentId_fkey" FOREIGN KEY ("shipmentId") REFERENCES "Shipment"("id") ON DELETE CASCADE ON UPDATE CASCADE;
 

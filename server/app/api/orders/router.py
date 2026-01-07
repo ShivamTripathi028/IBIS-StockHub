@@ -68,3 +68,14 @@ async def resume_order_route(order_id: str, db: Prisma = Depends(lambda: db_clie
         return updated_order
     except ValueError as e:
         raise HTTPException(status_code=400, detail=str(e))
+
+@router.post("/{order_id}/allocate", response_model=Order)
+async def allocate_order_route(order_id: str, db: Prisma = Depends(lambda: db_client)):
+    """Manually allocate stock to a pending order."""
+    try:
+        updated_order = await service.allocate_order(db, order_id)
+        if not updated_order:
+            raise HTTPException(status_code=404, detail="Order not found")
+        return updated_order
+    except ValueError as e:
+        raise HTTPException(status_code=400, detail=str(e))

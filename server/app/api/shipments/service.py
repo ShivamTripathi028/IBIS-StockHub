@@ -74,7 +74,7 @@ async def update_status(db: Prisma, shipment_id: str, new_status: ShipmentStatus
     """
     Updates status. 
     - PLANNING -> ORDERED: Generates Sales Orders ONLY for items with a Customer Name.
-    - ORDERED -> RECEIVED: Adds stock. If it was a Pre-Order, reserves it immediately.
+    - ORDERED -> RECEIVED: Adds stock. If it was a Pre-Order, reserves it immediately (unless Cancelled).
     """
     shipment = await db.shipment.find_unique(where={'id': shipment_id}, include={'requests': True})
     
@@ -91,20 +91,25 @@ async def update_status(db: Prisma, shipment_id: str, new_status: ShipmentStatus
                     data={'quantityInStock': {'increment': request.quantity}}
                 )
             
-                # B. IF it was a Pre-Order (Linked to an Order ID), Reserve it immediately.
-                # If 'fulfillingOrderId' is None (General Stock), this block is SKIPPED.
+                # B. Handle Linked Pre-Orders
                 if request.fulfillingOrderId:
-                    # 1. Deduct Stock (Reserve it for the customer)
-                    await transaction.product.update(
-                        where={'id': request.productId},
-                        data={'quantityInStock': {'decrement': request.quantity}}
-                    )
+                    # [FIX START] Check Order Status first!
+                    # We need to fetch the order to see if it was cancelled while waiting.
+                    linked_order = await transaction.order.find_unique(where={'id': request.fulfillingOrderId})
                     
-                    # 2. Update the Linked Sales Order Status
-                    await transaction.order.update(
-                        where={'id': request.fulfillingOrderId},
-                        data={'status': OrderStatus.READY_TO_SHIP}
-                    )
+                    if linked_order and linked_order.status != OrderStatus.CANCELLED:
+                        # 1. Deduct Stock (Reserve it for the customer)
+                        await transaction.product.update(
+                            where={'id': request.productId},
+                            data={'quantityInStock': {'decrement': request.quantity}}
+                        )
+                        
+                        # 2. Update the Linked Sales Order Status
+                        await transaction.order.update(
+                            where={'id': request.fulfillingOrderId},
+                            data={'status': OrderStatus.READY_TO_SHIP}
+                        )
+                    # [FIX END] If cancelled or missing, we do nothing (stock stays in inventory)
 
             updated_shipment = await transaction.shipment.update(
                 where={'id': shipment_id},
@@ -124,9 +129,7 @@ async def update_status(db: Prisma, shipment_id: str, new_status: ShipmentStatus
             # B. Group Requests by Customer
             customer_groups = {}
             for req in shipment.requests:
-                # --- CRITICAL CHECK ---
                 # If customerName is None or Empty, ignore it for Sales Order creation.
-                # It stays as a ShipmentRequest but won't trigger an Order.
                 if req.customerName and req.customerName.strip():
                     if req.customerName not in customer_groups:
                         customer_groups[req.customerName] = []
@@ -161,7 +164,6 @@ async def update_status(db: Prisma, shipment_id: str, new_status: ShipmentStatus
     
     return shipment
 
-# ... (rest of the file: delete_request, update_request_quantity, get_invoice_data, generate_excel_invoice)
 async def delete_request(db: Prisma, request_id: str):
     request = await db.shipmentrequest.find_unique(
         where={'id': request_id},

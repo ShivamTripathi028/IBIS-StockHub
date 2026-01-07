@@ -2,21 +2,16 @@ from prisma import Prisma
 from prisma.enums import ShipmentStatus, OrderStatus
 
 async def get_stats(db: Prisma):
-    # 1. Product Stats - UPDATED
-    # Only count SKUs that have physical stock (quantity > 0)
+    # 1. Product Stats
     total_skus = await db.product.count(
         where={'quantityInStock': {'gt': 0}}
     )
     
     # 2. Total Inventory Units
-    # We use query_raw for performance on the sum operation
     result = await db.query_raw('SELECT SUM(quantity_in_stock) as total FROM "Product"')
-    
-    # Handle case where result is None (empty DB)
     total_units = int(result[0]['total']) if result and result[0]['total'] is not None else 0
 
     # 3. Low Stock 
-    # Only count items that are actually in stock (gt: 0) but running low (lte: 5).
     low_stock_count = await db.product.count(
         where={
             'quantityInStock': {
@@ -31,9 +26,13 @@ async def get_stats(db: Prisma):
         where={'status': {'in': [ShipmentStatus.PLANNING, ShipmentStatus.ORDERED]}}
     )
 
-    # 5. Order Stats
-    active_orders = await db.order.count(
-        where={'status': {'in': [OrderStatus.AWAITING_STOCK, OrderStatus.READY_TO_SHIP]}}
+    # 5. Order Stats [UPDATED]
+    orders_ready = await db.order.count(
+        where={'status': OrderStatus.READY_TO_SHIP}
+    )
+    
+    orders_waiting = await db.order.count(
+        where={'status': OrderStatus.AWAITING_STOCK}
     )
 
     return {
@@ -41,7 +40,8 @@ async def get_stats(db: Prisma):
         'total_units': total_units,
         'low_stock_count': low_stock_count,
         'pending_shipments': pending_shipments,
-        'active_orders': active_orders
+        'orders_ready': orders_ready,      # New
+        'orders_waiting': orders_waiting   # New
     }
 
 async def get_low_stock_items(db: Prisma):

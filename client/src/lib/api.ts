@@ -65,13 +65,17 @@ export const ordersApi = {
   cancel: (id: string) => api.post(`/orders/${id}/cancel`),
   hold: (id: string) => api.post(`/orders/${id}/hold`),
   resume: (id: string) => api.post(`/orders/${id}/resume`),
+  allocate: (id: string) => api.post(`/orders/${id}/allocate`),
 };
 
 export const inventoryApi = {
-  getAll: () => api.get('/inventory'),
+  getAll: (search?: string) => api.get('/inventory', { params: search ? { search } : {} }),
   clearStock: () => api.post('/inventory/reset'),
 };
-export const productsApi = { search: (query: string) => api.get('/products', { params: { search: query } }) };
+export const productsApi = { 
+  search: (query: string) => api.get('/products', { params: { search: query } }),
+  create: (data: { name: string; sku: string }) => api.post('/products', data)
+};
 export const dashboardApi = {
   getStats: () => api.get('/dashboard/stats'),
   getLowStock: () => api.get('/dashboard/low-stock'),

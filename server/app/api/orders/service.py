@@ -50,7 +50,8 @@ async def send_whatsapp_notification(order):
         "Authorization": f"Bearer {token}",
         "Content-Type": "application/json"
     }
-
+    
+    # --- FIXED: Defined payload here ---
     payload = {
         "messaging_product": "whatsapp",
         "to": recipient,
@@ -102,12 +103,21 @@ async def create(db: Prisma, order_data: OrderCreate):
         can_fulfill_all = True
         for item in order_data.line_items:
             product = await transaction.product.find_unique(where={'id': item.product_id})
+            # Check if stock is sufficient
             if not product or product.quantityInStock < item.quantity:
                 can_fulfill_all = False
                 break
         
         initial_status = OrderStatus.READY_TO_SHIP if can_fulfill_all else OrderStatus.AWAITING_STOCK
         
+        # LOGIC FIX: If we can fulfill immediately, DEDUCT STOCK NOW (Reserve it)
+        if initial_status == OrderStatus.READY_TO_SHIP:
+            for item in order_data.line_items:
+                await transaction.product.update(
+                    where={'id': item.product_id},
+                    data={'quantityInStock': {'decrement': item.quantity}}
+                )
+
         new_order = await transaction.order.create(
             data={
                 'customerName': order_data.customer_name,
@@ -143,11 +153,8 @@ async def complete_order(db: Prisma, order_id: str):
         raise ValueError("Order is not in a state that can be completed.")
 
     async with db.tx() as transaction:
-        for item in order_to_complete.lineItems:
-            await transaction.product.update(
-                where={'id': item.productId},
-                data={'quantityInStock': {'decrement': item.quantity}}
-            )
+        # LOGIC FIX: Do NOT deduct stock here. 
+        # Stock was already deducted when status became READY_TO_SHIP.
         
         await transaction.order.update(
             where={'id': order_id},
@@ -157,15 +164,74 @@ async def complete_order(db: Prisma, order_id: str):
     return await get_by_id(db, order_id)
 
 async def cancel_order(db: Prisma, order_id: str):
-    return await db.order.update(
-        where={'id': order_id},
-        data={'status': OrderStatus.CANCELLED},
-        include={'lineItems': {'include': {'product': True}}}
-    )
+    order = await get_by_id(db, order_id)
+    if not order:
+        return None
+
+    async with db.tx() as transaction:
+        # LOGIC FIX: If the order reserved stock, give it back.
+        # This applies to READY_TO_SHIP and ON_HOLD.
+        if order.status in [OrderStatus.READY_TO_SHIP, OrderStatus.ON_HOLD]:
+            for item in order.lineItems:
+                await transaction.product.update(
+                    where={'id': item.productId},
+                    data={'quantityInStock': {'increment': item.quantity}}
+                )
+
+        return await transaction.order.update(
+            where={'id': order_id},
+            data={'status': OrderStatus.CANCELLED},
+            include={'lineItems': {'include': {'product': True}}}
+        )
 
 async def hold_order(db: Prisma, order_id: str):
+    # Stock remains reserved (deducted) while ON_HOLD
     return await db.order.update(
         where={'id': order_id},
         data={'status': OrderStatus.ON_HOLD},
         include={'lineItems': {'include': {'product': True}}}
     )
+
+async def resume_order(db: Prisma, order_id: str):
+    # Just update status back to READY. Stock is already reserved.
+    return await db.order.update(
+        where={'id': order_id},
+        data={'status': OrderStatus.READY_TO_SHIP},
+        include={'lineItems': {'include': {'product': True}}}
+    )
+
+async def allocate_order(db: Prisma, order_id: str):
+    """
+    Attempts to allocate stock to an AWAITING_STOCK order.
+    If stock is available, it reserves (deducts) it and moves to READY_TO_SHIP.
+    """
+    order = await get_by_id(db, order_id)
+    if not order:
+        return None
+    
+    if order.status != OrderStatus.AWAITING_STOCK:
+        raise ValueError("Only orders awaiting stock can be allocated.")
+
+    async with db.tx() as transaction:
+        # 1. Check if we have enough stock for ALL items
+        for item in order.lineItems:
+            product = await transaction.product.find_unique(where={'id': item.productId})
+            if not product:
+                raise ValueError(f"Product {item.productId} not found")
+            
+            if product.quantityInStock < item.quantity:
+                raise ValueError(f"Insufficient stock for {product.sku}. Needed: {item.quantity}, Available: {product.quantityInStock}")
+
+        # 2. If we are here, stock is good. Reserve it.
+        for item in order.lineItems:
+            await transaction.product.update(
+                where={'id': item.productId},
+                data={'quantityInStock': {'decrement': item.quantity}}
+            )
+
+        # 3. Update Status
+        return await transaction.order.update(
+            where={'id': order_id},
+            data={'status': OrderStatus.READY_TO_SHIP},
+            include={'lineItems': {'include': {'product': True}}}
+        )

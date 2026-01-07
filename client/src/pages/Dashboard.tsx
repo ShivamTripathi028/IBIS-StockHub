@@ -10,7 +10,9 @@ import {
   Layers,
   LucideIcon,
   CheckCircle,
-  Inbox
+  Inbox,
+  Clock,
+  PackageCheck
 } from "lucide-react";
 import Navigation from "@/components/Navigation";
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/components/ui/card";
@@ -24,7 +26,8 @@ interface DashboardStats {
   total_units: number;
   low_stock_count: number;
   pending_shipments: number;
-  active_orders: number;
+  orders_ready: number;
+  orders_waiting: number;
 }
 
 interface LowStockItem {
@@ -34,12 +37,14 @@ interface LowStockItem {
   quantity: number;
 }
 
+// [UPDATED] Interface to accept specific color themes
 interface StatCardProps {
   title: string;
   value: string | number | undefined;
   icon: LucideIcon;
   description: string;
   onClick: () => void;
+  colorTheme: "green" | "orange" | "blue" | "violet"; // New prop
 }
 
 const Dashboard = () => {
@@ -68,27 +73,41 @@ const Dashboard = () => {
     fetchData();
   }, []);
 
-  const StatCard = ({ title, value, icon: Icon, description, onClick }: StatCardProps) => (
-    <Card 
-        className={`shadow-sm hover:shadow-md transition-shadow cursor-pointer`}
-        onClick={onClick}
-    >
-      <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
-        <CardTitle className="text-sm font-medium">{title}</CardTitle>
-        <Icon className="h-4 w-4 text-muted-foreground" />
-      </CardHeader>
-      <CardContent>
-        {loading ? (
-            <Skeleton className="h-8 w-16" />
-        ) : (
-            <div className="text-2xl font-bold">{value ?? 0}</div>
-        )}
-        <p className="text-xs text-muted-foreground mt-1">
-          {description}
-        </p>
-      </CardContent>
-    </Card>
-  );
+  // [UPDATED] StatCard now handles dynamic coloring based on the theme
+  const StatCard = ({ title, value, icon: Icon, description, onClick, colorTheme }: StatCardProps) => {
+    
+    // Color mapping
+    const themeStyles = {
+      green: { border: "border-l-emerald-500", icon: "text-emerald-600", bg: "hover:bg-emerald-50/10" },
+      orange: { border: "border-l-orange-500", icon: "text-orange-600", bg: "hover:bg-orange-50/10" },
+      blue: { border: "border-l-blue-500", icon: "text-blue-600", bg: "hover:bg-blue-50/10" },
+      violet: { border: "border-l-violet-500", icon: "text-violet-600", bg: "hover:bg-violet-50/10" },
+    };
+
+    const currentTheme = themeStyles[colorTheme];
+
+    return (
+      <Card 
+          className={`shadow-sm transition-all cursor-pointer border-l-4 ${currentTheme.border} ${currentTheme.bg}`}
+          onClick={onClick}
+      >
+        <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
+          <CardTitle className="text-sm font-medium">{title}</CardTitle>
+          <Icon className={`h-4 w-4 ${currentTheme.icon}`} />
+        </CardHeader>
+        <CardContent>
+          {loading ? (
+              <Skeleton className="h-8 w-16" />
+          ) : (
+              <div className="text-2xl font-bold">{value ?? 0}</div>
+          )}
+          <p className="text-xs text-muted-foreground mt-1">
+            {description}
+          </p>
+        </CardContent>
+      </Card>
+    );
+  };
 
   return (
     <div className="min-h-screen bg-muted/10">
@@ -108,32 +127,37 @@ const Dashboard = () => {
         {/* KPI Grid */}
         <div className="grid gap-4 md:grid-cols-2 lg:grid-cols-4 mb-8">
           <StatCard 
-            title="Total Inventory" 
-            value={stats?.total_units.toLocaleString()} 
-            icon={Box}
-            description={`${stats?.total_skus ?? 0} Unique SKUs`}
-            onClick={() => navigate('/inventory')}
+            title="Ready to Ship" 
+            value={stats?.orders_ready} 
+            icon={PackageCheck}
+            description="Orders allocated & ready"
+            onClick={() => navigate('/orders')}
+            colorTheme="green" // [NEW] Green for Success/Ready
           />
           <StatCard 
-            title="Active Orders" 
-            value={stats?.active_orders} 
-            icon={ShoppingCart}
-            description="Awaiting stock or shipping"
+            title="Awaiting Stock" 
+            value={stats?.orders_waiting} 
+            icon={Clock}
+            description="Orders pending inventory"
             onClick={() => navigate('/orders')}
+            colorTheme="orange" // [NEW] Orange for Warning/Waiting
           />
+          
           <StatCard 
             title="Pending Shipments" 
             value={stats?.pending_shipments} 
             icon={Package}
             description="In planning or ordered"
             onClick={() => navigate('/shipments')}
+            colorTheme="blue" // [NEW] Blue for Logistics
           />
           <StatCard 
-            title="Low Stock Alerts" 
-            value={stats?.low_stock_count} 
-            icon={AlertTriangle}
-            description="Items that might run out soon"
+            title="Total Inventory" 
+            value={stats?.total_units.toLocaleString()} 
+            icon={Box}
+            description={`${stats?.total_skus ?? 0} Active SKUs`}
             onClick={() => navigate('/inventory')}
+            colorTheme="violet" // [NEW] Violet for Static Data
           />
         </div>
 
@@ -150,7 +174,7 @@ const Dashboard = () => {
                         </Button>
                     </CardTitle>
                     <CardDescription>
-                        Products that need urgent restocking.
+                        Active products running low on stock.
                     </CardDescription>
                 </CardHeader>
                 <CardContent>
@@ -165,27 +189,16 @@ const Dashboard = () => {
                             Failed to load data.
                         </div>
                     ) : stats?.total_skus === 0 ? (
-                        /* Case 1: No Products in DB */
                         <div className="text-center py-8 text-muted-foreground">
                             <Inbox className="h-8 w-8 mx-auto mb-2 text-muted-foreground/50" />
-                            <p>No products in database.</p>
-                            <p className="text-xs mt-1">Seed database to get started.</p>
-                        </div>
-                    ) : stats?.total_units === 0 ? (
-                        /* Case 2: DB has products, but 0 stock (NEW) */
-                        <div className="text-center py-8 text-muted-foreground">
-                            <Inbox className="h-8 w-8 mx-auto mb-2 text-muted-foreground/50" />
-                            <p>Inventory is empty.</p>
-                            <p className="text-xs mt-1">Receive shipments to start tracking stock.</p>
+                            <p>No active inventory.</p>
                         </div>
                     ) : lowStockItems.length === 0 ? (
-                        /* Case 3: Stock exists, and none is low */
                         <div className="text-center py-8 text-muted-foreground">
                             <CheckCircle className="h-8 w-8 mx-auto mb-2 text-green-500/50" />
                             <p>Stock levels look healthy!</p>
                         </div>
                     ) : (
-                        /* Case 4: Low stock items exist */
                         <Table>
                             <TableHeader>
                                 <TableRow>

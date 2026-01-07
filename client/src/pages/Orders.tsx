@@ -15,7 +15,8 @@ import {
   AlertCircle,
   ChevronDown,
   ChevronRight,
-  Box
+  Box,
+  PackageCheck
 } from "lucide-react";
 import Navigation from "@/components/Navigation";
 import { Button } from "@/components/ui/button";
@@ -296,6 +297,22 @@ const Orders = () => {
     }
   };
 
+  // Allocate Stock Handler
+  const handleAllocateOrder = async (e: React.MouseEvent, orderId: string) => {
+    e.stopPropagation();
+    try {
+      await ordersApi.allocate(orderId);
+      toast({ title: "Allocated", description: "Stock reserved. Order is ready to ship." });
+      fetchOrders();
+    } catch (error: unknown) { // [FIXED] Changed 'any' to 'unknown' and added type check
+      let msg = "Failed to allocate stock";
+      if (error instanceof AxiosError && error.response?.data?.detail) {
+        msg = error.response.data.detail;
+      }
+      toast({ title: "Allocation Failed", description: msg, variant: "destructive" });
+    }
+  };
+
   const getStatusBadge = (status: string) => {
     const s = status.toUpperCase();
     if (s === "READY_TO_SHIP") return <Badge className="bg-green-600 hover:bg-green-700">Ready to Ship</Badge>;
@@ -326,14 +343,12 @@ const Orders = () => {
                     </Button>
                 </DialogTrigger>
                 
-                {/* CHANGED: Allow DialogContent to scroll vertically (overflow-y-auto), removed flex flex-col constraints that clipped inner content */}
                 <DialogContent className="max-w-4xl max-h-[90vh] overflow-y-auto">
                     <DialogHeader>
                         <DialogTitle>Create Sales Order</DialogTitle>
                         <DialogDescription>Record a new local or Amazon sale.</DialogDescription>
                     </DialogHeader>
                     
-                    {/* CHANGED: Removed overflow-hidden and flex constraints so dropdowns can overflow or scroll naturally with the modal */}
                     <form onSubmit={handleCreateOrder} className="flex flex-col gap-6 py-4 px-1">
                         <div className="grid grid-cols-2 gap-4">
                             <div className="space-y-2">
@@ -523,9 +538,22 @@ const Orders = () => {
                                 </TableCell>
                                 <TableCell className="text-right pr-6">
                                     <div className="flex justify-end gap-1" onClick={(e) => e.stopPropagation()}>
-                                        {/* Awaiting Stock: View Only */}
+                                        {/* Awaiting Stock: Allocate + Cancel */}
                                         {order.status === "AWAITING_STOCK" && (
-                                            <span className="text-xs text-muted-foreground italic py-2 pr-2">Wait for Shipment</span>
+                                            <>
+                                                <Button 
+                                                    size="icon" 
+                                                    variant="ghost" 
+                                                    onClick={(e) => handleAllocateOrder(e, order.id)} 
+                                                    title="Try Allocate Stock"
+                                                    className="hover:bg-blue-50 text-blue-600"
+                                                >
+                                                    <PackageCheck className="h-4 w-4" />
+                                                </Button>
+                                                <Button size="icon" variant="ghost" onClick={(e) => initiateCancelOrder(e, order.id)} title="Cancel">
+                                                    <XCircle className="h-4 w-4 text-destructive" />
+                                                </Button>
+                                            </>
                                         )}
 
                                         {/* Ready to Ship: Complete, Hold, Cancel */}

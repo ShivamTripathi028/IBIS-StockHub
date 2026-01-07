@@ -1,5 +1,5 @@
-from fastapi import APIRouter, Depends
-from typing import List
+from fastapi import APIRouter, Depends, Query
+from typing import List, Optional
 from prisma import Prisma
 from app.db.session import db_client
 from . import service
@@ -8,10 +8,12 @@ from .schemas import InventoryItem
 router = APIRouter()
 
 @router.get("", response_model=List[InventoryItem])
-async def get_inventory_list(db: Prisma = Depends(lambda: db_client)):
-    return await service.get_all_inventory_items(db)
+async def get_inventory_list(
+    search: Optional[str] = Query(None),
+    db: Prisma = Depends(lambda: db_client)
+):
+    return await service.get_all_inventory_items(db, search)
 
-# --- NEW ENDPOINT ---
 @router.post("/reset", status_code=204)
 async def reset_inventory_route(db: Prisma = Depends(lambda: db_client)):
     """Development Endpoint: Clears all inventory stock."""

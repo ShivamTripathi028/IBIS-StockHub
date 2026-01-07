@@ -1,5 +1,5 @@
-import { useState, useEffect } from "react";
-import { Search, Loader2, Inbox, SearchX, ExternalLink, ArrowUpDown, ArrowUp, ArrowDown, Trash2 } from "lucide-react";
+import { useState, useEffect, useCallback } from "react";
+import { Search, Loader2, Inbox, SearchX, ExternalLink, ArrowUpDown, ArrowUp, ArrowDown, Trash2, Eye, EyeOff, Plus } from "lucide-react";
 import Navigation from "@/components/Navigation";
 import {
   Card,
@@ -19,6 +19,16 @@ import {
 import { Input } from "@/components/ui/input";
 import { Button } from "@/components/ui/button";
 import { 
+  Dialog, 
+  DialogContent, 
+  DialogDescription, 
+  DialogFooter, 
+  DialogHeader, 
+  DialogTitle, 
+  DialogTrigger 
+} from "@/components/ui/dialog";
+import { Label } from "@/components/ui/label";
+import { 
   AlertDialog, 
   AlertDialogAction, 
   AlertDialogCancel, 
@@ -28,8 +38,10 @@ import {
   AlertDialogHeader, 
   AlertDialogTitle 
 } from "@/components/ui/alert-dialog";
-import { inventoryApi } from "@/lib/api";
+import { inventoryApi, productsApi } from "@/lib/api";
 import { useToast } from "@/hooks/use-toast";
+import { cn } from "@/lib/utils";
+import { AxiosError } from "axios";
 
 interface InventoryItem {
   sku: string;
@@ -42,51 +54,25 @@ type SortOrder = 'asc' | 'desc' | null;
 const Inventory = () => {
   const { toast } = useToast();
   const [inventory, setInventory] = useState<InventoryItem[]>([]);
-  const [filteredInventory, setFilteredInventory] = useState<InventoryItem[]>([]);
   const [loading, setLoading] = useState(true);
   const [searchQuery, setSearchQuery] = useState("");
   const [sortOrder, setSortOrder] = useState<SortOrder>(null);
 
-  // New state for Clear Stock modal
   const [isClearOpen, setIsClearOpen] = useState(false);
   const [isClearing, setIsClearing] = useState(false);
 
-  useEffect(() => {
-    fetchInventory();
-  }, []);
+  // -- Create Product State --
+  const [isCreateOpen, setIsCreateOpen] = useState(false);
+  const [newSku, setNewSku] = useState("");
+  const [newName, setNewName] = useState("");
+  const [isCreating, setIsCreating] = useState(false);
 
-  useEffect(() => {
-    let result = [...inventory];
-
-    // 1. Filter
-    if (searchQuery) {
-      result = result.filter(
-        (item) =>
-          item.name.toLowerCase().includes(searchQuery.toLowerCase()) ||
-          item.sku.toLowerCase().includes(searchQuery.toLowerCase())
-      );
-    }
-
-    // 2. Sort
-    if (sortOrder) {
-      result.sort((a, b) => {
-        if (sortOrder === 'asc') {
-          return a.quantityInStock - b.quantityInStock;
-        } else {
-          return b.quantityInStock - a.quantityInStock;
-        }
-      });
-    }
-
-    setFilteredInventory(result);
-  }, [searchQuery, inventory, sortOrder]);
-
-  const fetchInventory = async () => {
+  // Fetch Inventory (Search Aware)
+  const fetchInventory = useCallback(async (query: string = "") => {
     setLoading(true);
     try {
-      const response = await inventoryApi.getAll();
+      const response = await inventoryApi.getAll(query);
       setInventory(response.data);
-      setFilteredInventory(response.data);
     } catch (error) {
       console.error("Failed to fetch inventory:", error);
       toast({
@@ -97,7 +83,16 @@ const Inventory = () => {
     } finally {
       setLoading(false);
     }
-  };
+  }, [toast]);
+
+  // Debounced Search
+  useEffect(() => {
+    const timer = setTimeout(() => {
+      fetchInventory(searchQuery);
+    }, 400);
+
+    return () => clearTimeout(timer);
+  }, [searchQuery, fetchInventory]);
 
   const handleClearStock = async () => {
     setIsClearing(true);
@@ -121,6 +116,34 @@ const Inventory = () => {
     }
   };
 
+  // -- Handle Create Product --
+  const handleCreateProduct = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!newSku.trim() || !newName.trim()) return;
+
+    setIsCreating(true);
+    try {
+      await productsApi.create({ name: newName, sku: newSku });
+      toast({ title: "Success", description: "Product created successfully." });
+      
+      setIsCreateOpen(false);
+      setNewName("");
+      setNewSku("");
+      
+      // Auto-search for the new item so the user sees it immediately
+      setSearchQuery(newSku);
+      fetchInventory(newSku);
+    } catch (error: unknown) {
+        let msg = "Failed to create product";
+        if (error instanceof AxiosError && error.response?.data?.detail) {
+            msg = error.response.data.detail;
+        }
+        toast({ title: "Error", description: msg, variant: "destructive" });
+    } finally {
+        setIsCreating(false);
+    }
+  };
+
   const toggleSort = () => {
     if (sortOrder === null) setSortOrder('asc');
     else if (sortOrder === 'asc') setSortOrder('desc');
@@ -133,11 +156,13 @@ const Inventory = () => {
     return <ArrowUpDown className="h-4 w-4" />;
   };
 
-  const getSortLabel = () => {
-    if (sortOrder === 'asc') return "Low to High";
-    if (sortOrder === 'desc') return "High to Low";
-    return "Sort Quantity";
-  };
+  // Client-side sorting for the current result set
+  const sortedInventory = [...inventory].sort((a, b) => {
+    if (!sortOrder) return 0;
+    return sortOrder === 'asc' 
+      ? a.quantityInStock - b.quantityInStock 
+      : b.quantityInStock - a.quantityInStock;
+  });
 
   return (
     <div className="min-h-screen bg-background">
@@ -156,31 +181,76 @@ const Inventory = () => {
               <div className="relative w-full max-w-md">
                 <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-5 w-5 text-muted-foreground" />
                 <Input
-                  placeholder="Search products by name or SKU..."
+                  placeholder="Search catalog by SKU or Name..."
                   value={searchQuery}
                   onChange={(e) => setSearchQuery(e.target.value)}
                   className="pl-12 py-6 rounded-xl text-base shadow-sm"
                 />
               </div>
               
-              <div className="flex gap-2">
-                {/* NEW BUTTON: Clear Stock */}
+              <div className="flex gap-2 items-center">
+                {/* [NEW] Create Product Dialog */}
+                <Dialog open={isCreateOpen} onOpenChange={setIsCreateOpen}>
+                    <DialogTrigger asChild>
+                        <Button className="h-14 px-6 rounded-xl shadow-sm gap-2">
+                            <Plus className="h-4 w-4" />
+                            <span className="hidden md:inline">New Product</span>
+                        </Button>
+                    </DialogTrigger>
+                    <DialogContent>
+                        <DialogHeader>
+                            <DialogTitle>Add New Product</DialogTitle>
+                            <DialogDescription>
+                                Add a new SKU to the catalog. It will start with 0 stock.
+                            </DialogDescription>
+                        </DialogHeader>
+                        <form onSubmit={handleCreateProduct} className="space-y-4 py-2">
+                            <div className="space-y-2">
+                                <Label htmlFor="sku">SKU</Label>
+                                <Input 
+                                    id="sku" 
+                                    value={newSku} 
+                                    onChange={(e) => setNewSku(e.target.value)} 
+                                    // [CHANGED] Updated Placeholder
+                                    placeholder="e.g. 920287 or B12453" 
+                                    autoFocus
+                                />
+                            </div>
+                            <div className="space-y-2">
+                                <Label htmlFor="name">Product Name</Label>
+                                <Input 
+                                    id="name" 
+                                    value={newName} 
+                                    onChange={(e) => setNewName(e.target.value)} 
+                                    placeholder="e.g. WisBlock Dual IO Base Board"
+                                />
+                            </div>
+                            <DialogFooter>
+                                <Button type="submit" disabled={isCreating}>
+                                    {isCreating && <Loader2 className="mr-2 h-4 w-4 animate-spin" />}
+                                    Create Product
+                                </Button>
+                            </DialogFooter>
+                        </form>
+                    </DialogContent>
+                </Dialog>
+
                 <Button 
                     variant="destructive" 
                     onClick={() => setIsClearOpen(true)}
                     className="h-14 px-6 rounded-xl shadow-sm gap-2"
                 >
                     <Trash2 className="h-4 w-4" />
-                    <span>Clear Stock</span>
+                    <span className="hidden md:inline">Clear Stock</span>
                 </Button>
 
                 <Button 
                     variant="outline" 
                     onClick={toggleSort}
-                    className="h-14 px-6 rounded-xl border-input bg-background shadow-sm hover:bg-accent hover:text-accent-foreground gap-2 min-w-[160px]"
+                    className="h-14 px-6 rounded-xl border-input bg-background shadow-sm hover:bg-accent hover:text-accent-foreground gap-2 min-w-[140px]"
                 >
                     {getSortIcon()}
-                    <span>{getSortLabel()}</span>
+                    <span>Sort</span>
                 </Button>
               </div>
             </div>
@@ -189,7 +259,7 @@ const Inventory = () => {
               <div className="flex items-center justify-center py-24">
                 <Loader2 className="h-10 w-10 animate-spin text-muted-foreground" />
               </div>
-            ) : filteredInventory.length === 0 ? (
+            ) : sortedInventory.length === 0 ? (
               <div className="flex flex-col items-center justify-center py-20 text-center">
                 {searchQuery ? (
                   <SearchX className="h-20 w-20 text-muted-foreground/40" />
@@ -197,12 +267,12 @@ const Inventory = () => {
                   <Inbox className="h-20 w-20 text-muted-foreground/40" />
                 )}
                 <h2 className="mt-5 text-2xl font-semibold">
-                  {searchQuery ? "No Results Found" : "Inventory Empty"}
+                  {searchQuery ? "No Results Found" : "No Active Stock"}
                 </h2>
                 <p className="mt-2 text-muted-foreground text-base max-w-md">
                   {searchQuery
-                    ? `No products match "${searchQuery}" in the current stock.`
-                    : "There are currently no items with positive stock levels."}
+                    ? `No products match "${searchQuery}".`
+                    : "You have no items in stock. Search above to find any item in the full catalog."}
                 </p>
               </div>
             ) : (
@@ -218,7 +288,7 @@ const Inventory = () => {
                     </TableRow>
                   </TableHeader>
                   <TableBody>
-                    {filteredInventory.map((item) => (
+                    {sortedInventory.map((item) => (
                       <TableRow key={item.sku} className="hover:bg-muted/20 transition">
                         <TableCell className="font-mono text-primary font-medium">
                           <a
@@ -235,9 +305,11 @@ const Inventory = () => {
                         <TableCell className="text-right pr-6 text-base">
                           <span
                             className={
-                              item.quantityInStock < 10
-                                ? "text-destructive font-semibold"
-                                : "font-semibold"
+                              item.quantityInStock === 0 
+                                ? "text-muted-foreground opacity-50"
+                                : item.quantityInStock < 10
+                                    ? "text-destructive font-semibold"
+                                    : "font-semibold"
                             }
                           >
                             {item.quantityInStock}
