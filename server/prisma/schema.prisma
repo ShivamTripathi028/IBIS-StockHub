@@ -2,7 +2,9 @@
 // It is configured for a Python (FastAPI) backend.
 
 generator client {
-  provider = "prisma-client-py"
+  provider                  = "prisma-client-py"
+  enable_experimental_decimal = true
+  binaryTargets             = ["native", "debian-openssl-3.0.x"]
 }
 
 datasource db {
